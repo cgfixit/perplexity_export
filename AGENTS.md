@@ -16,10 +16,11 @@ service.
 - Preserve atomic writes, raw received-page checkpoints, explicit pagination
   completion, and the `account_completeness: not_verified` report field.
 - Do not turn malformed or partial responses into empty successful exports.
-- Keep live account verification local-only; automatic CI uses fake responses.
-  The manual public-thread workflow may only use anonymous public UUID access,
-  independently checked expectations, a complete-content digest, temporary
-  local artifacts that are deleted, and no transcript uploads or cookies.
+- Keep live account verification local-only; automatic release CI uses fake
+  responses. The isolated public-thread canary may use only anonymous public
+  UUID access, Perplexity's native Markdown export, a pinned harmless baseline,
+  temporary local artifacts that are deleted, and no transcript uploads or
+  cookies. It must remain outside release and merge gates.
 
 ## Development
 

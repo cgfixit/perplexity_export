@@ -9,7 +9,7 @@
 | `.github/workflows/security.yml` | Main pushes, PRs, weekly, manual | Bandit medium/high findings and pip-audit advisories for resolved runtime and CI-tool dependencies |
 | `.github/workflows/release.yml` | A pushed `v*` tag | Requires CI, security, and resilience for that tag, then verifies and publishes the allowlisted source ZIP and checksum |
 | `.github/dependabot.yml` | Weekly | Proposed updates to pinned GitHub Actions and pip requirements |
-| `.github/workflows/public-thread.yml` | Manual only | Real anonymous UUID export, saved-artifact validation, offline rebuild, and complete-content digest on Python 3.12/3.13; no cookies or transcript artifacts |
+| `.github/workflows/public-thread.yml` | Weekly or manual | Real anonymous native Markdown export, exact-byte save/reopen, and optional complete-file digest on Python 3.12/3.13; no cookies or transcript artifacts |
 
 There is no server to deploy: continuous delivery means distributing a tested
 source ZIP. No PyPI publishing, deployment credentials, or Perplexity credentials
@@ -122,38 +122,39 @@ an anonymous export API contract. The regular exporter still requires account
 cookies; `public_verify.py` explicitly constructs an anonymous client and only
 selects the supplied UUID, never listing history or resolving slugs.
 
-A credential-free check of a supplied shared page on September 7, 2026 returned
+A credential-free check of the supplied shared page on September 7, 2026 returned
 HTTP 403 to a plain client, while the anonymous thread API and in-app browser
 were reachable. Repeated entries changed only renewable signatures for the same
 Perplexity S3 and CloudFront objects; those narrowly defined changes are now
 canonicalized for duplicate comparison and the structural digest. The API then
 oscillated between an identical 50-entry page and two opaque cursors while still
 claiming another page. The verifier correctly treats that as incomplete instead
-of guessing an endpoint. This establishes real failure detection, not a complete
-successful export of the supplied thread. Its URL and content are not fixtures.
+of guessing that 100 entries meant completion.
 
-After this workflow is on the default branch, open Actions → Public thread
-verification → Run workflow. First run
-`python public_verify.py --thread-url URL --inspect` locally on a harmless stable
-thread. Supply its digest plus an exact
-turn count and distinctive phrase independently checked in the browser. Inputs
-are passed through environment variables, not inserted into shell source. The
-Python 3.12/3.13 jobs have ten-minute timeouts, no account credentials, and no
-transcript artifact upload. Inputs remain visible in run metadata: use harmless
+Perplexity's native `/rest/thread/export` endpoint succeeds anonymously for that
+same shared UUID and returns one base64-encoded Markdown file. Two clean requests
+returned identical 1,090,044-byte files with SHA-256
+`c5e710abce41a79780e0d010e2123f5a55707121628f1667e99cb3497f89f78f`.
+The public workflow now uses this single complete-export operation instead of
+the broken detail cursor for its canary. This endpoint is still unofficial and
+may change.
+
+Open Actions → Public thread verification → Run workflow and leave both fields
+blank to use the example URL and pinned digest. A custom URL needs only the full
+public UUID URL; its SHA-256 field is optional. Inputs are passed through
+environment variables, not inserted into shell source. The Python 3.12/3.13
+jobs have ten-minute timeouts, no account credentials, and no transcript
+artifact upload. The temporary Markdown is reopened byte-for-byte and deleted
+in an `always()` cleanup step. Inputs and digest remain visible: use harmless
 public content only.
 
-Success requires explicit pagination completion, the expected count/text/digest,
-a complete temporary raw/Markdown/record/index/report export, exact file reopen,
-and a byte-identical offline CLI rebuild. The job fails for blocked access,
-cursor loops, changed entries, review notes, unexpected files, or mismatches.
-A blocked or skipped request is never success.
-
-`python public_verify.py --thread-url URL --inspect` can diagnose retrieval and
-produce a canonical content digest locally; its count and digest are not an
-independently verified browser baseline. The workflow intentionally does not
-expose inspection mode. Private
-threads continue to use local `live_verify.py` with the user's own cookies.
-Neither public verification nor local checks can prove account-wide coverage.
+`python public_verify.py --thread-url URL --native-export --output FILE.md`
+performs and saves the same complete native export locally. Add
+`--expected-sha256 DIGEST` for an exact baseline. `--inspect` remains a
+diagnostic for the structured detail API and deliberately fails on incomplete
+pagination. Private threads continue to use local `live_verify.py` with the
+user's own cookies. Neither public verification nor local checks can prove
+account-wide coverage.
 
 ## Create a release after reviewing the checks
 

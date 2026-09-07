@@ -1,7 +1,11 @@
 """Anonymous checks must verify content and never inherit account cookies."""
+import base64
 import contextlib
+import hashlib
 import io
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pplx_export as e
@@ -31,6 +35,24 @@ class PublicTests(unittest.TestCase):
         self.export_calls = export_one.call_count
         self.client_calls = len(client.calls)
         return status, output.getvalue()
+
+    def invoke_native(self, payload, *extra):
+        client = QueueClient([payload])
+        output = io.StringIO()
+        with (patch.object(e, "Client", return_value=client) as factory,
+              contextlib.redirect_stdout(output)):
+            status = public_verify.main(["--thread-url", URL, "--native-export", *extra])
+        factory.assert_called_once_with(None)
+        self.assertTrue(client.closed)
+        self.assertEqual(client.calls[0][0], "POST")
+        self.assertIn("/rest/thread/export?", client.calls[0][1])
+        self.assertEqual(client.calls[0][2], {"thread_uuid": UID, "format": "md"})
+        return status, output.getvalue()
+
+    @staticmethod
+    def native_payload(markdown=b"# Public test\n\nHarmless fixture.\n"):
+        return {"filename": "public-test.md",
+                "file_content_64": base64.b64encode(markdown).decode("ascii")}
 
     def test_anonymous_headers_have_no_cookie_or_csrf_token(self):
         response = Mock(status_code=200); response.json.return_value = {}
@@ -75,6 +97,40 @@ class PublicTests(unittest.TestCase):
         self.assertIn("Temporary export was deleted", output)
         self.assertNotIn("PASS:", output)
         self.assertEqual(self.export_calls, 2)
+
+    def test_native_export_verifies_optional_digest_without_logging_content(self):
+        data = b"# Public test\n\nDo not echo this fixture.\n"
+        expected = hashlib.sha256(data).hexdigest()
+        status, output = self.invoke_native(self.native_payload(data), "--expected-sha256", expected)
+        self.assertEqual(status, 0)
+        self.assertIn(expected, output)
+        self.assertNotIn("Do not echo", output)
+
+    def test_native_export_atomically_saves_and_reopens_exact_bytes(self):
+        data = "# Unicode\n\ncafé 日本語 🚀\n".encode("utf-8")
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "nested" / "thread.md"
+            status, output = self.invoke_native(self.native_payload(data), "--output", str(output_path))
+            self.assertEqual(status, 0)
+            self.assertEqual(output_path.read_bytes(), data)
+            self.assertIn("saved atomically and reopened", output)
+            self.assertEqual(list(output_path.parent.glob("*.tmp")), [])
+
+    def test_native_export_rejects_digest_mismatch_and_malformed_payloads(self):
+        status, output = self.invoke_native(self.native_payload(), "--expected-sha256", "0" * 64)
+        self.assertEqual(status, 1)
+        self.assertIn("did not match", output)
+        cases = (
+            {},
+            {"filename": "thread.md", "file_content_64": "not base64!"},
+            {"filename": "../thread.md", "file_content_64": base64.b64encode(b"text").decode("ascii")},
+            {"filename": "thread.md", "file_content_64": base64.b64encode(b"\xff").decode("ascii")},
+        )
+        for payload in cases:
+            with self.subTest(payload=payload):
+                status, output = self.invoke_native(payload)
+                self.assertEqual(status, 1)
+                self.assertNotIn("PASS:", output)
 
     def test_denial_and_transport_exceptions_are_not_reported_as_success(self):
         for error in (e.AuthError("fake private text"), RuntimeError("fake private text")):
@@ -147,7 +203,11 @@ class PublicTests(unittest.TestCase):
     def test_missing_expectations_or_combined_inspection_rejected(self):
         for options in ([], ["--expected-turns", "0", "--expect-text", "x", "--expected-sha256", "0" * 64],
                         ["--expected-turns", "1", "--expect-text", "x", "--expected-sha256", "ABC"],
-                        ["--inspect", "--expect-text", "x"]):
+                        ["--inspect", "--expect-text", "x"],
+                        ["--inspect", "--native-export"],
+                        ["--native-export", "--expected-turns", "1"],
+                        ["--native-export", "--expected-sha256", "ABC"],
+                        ["--output", "thread.md"]):
             with self.subTest(options=options), patch.object(e, "Client") as client, contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit):
                     public_verify.main(["--thread-url", URL, *options])

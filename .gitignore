@@ -19,6 +19,7 @@ runs/
 export_report.json
 INDEX.md
 .export.lock/
+perplexity-public-export.md
 
 # Local environments and generated files
 .venv/
