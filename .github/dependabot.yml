@@ -1,4 +1,5 @@
 version: 2
+# Weekly cadence with low open-PR limits keeps Actions/pip bumps reviewable.
 updates:
   - package-ecosystem: github-actions
     directory: /
