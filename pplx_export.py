@@ -512,6 +512,11 @@ def md_label(value):
     return str(value).replace("\n", " ").replace("\r", " ").replace("|", "\\|").replace("[", "\\[").replace("]", "\\]")
 
 
+def md_heading(value):
+    """Sanitize a conversation title for a single ATX H1 line after '# '."""
+    return md_label(value).replace("#", "\\#").replace("<", "\\<")
+
+
 def render_entry(entry, number, warnings):
     query = first_text(entry, ("query_str", "query", "prompt"))
     lines = [f"## {number}. You", "", query or "*(No prompt returned.)*", ""]
@@ -686,7 +691,7 @@ def render(raw, fallback_id=None, list_meta=None):
     url = meta.get("url") or ("/search/" + str(meta.get("slug") or uid))
     if isinstance(url, str) and url.startswith("/"):
         url = BASE + url
-    lines = [f"# {title}", "", f"- Thread ID: {uid}", f"- URL: {url}",
+    lines = [f"# {md_heading(title)}", "", f"- Thread ID: {uid}", f"- URL: {url}",
              f"- Created: {meta.get('created_at') or 'Not provided'}",
              f"- Updated: {meta.get('updated_at') or meta.get('last_query_datetime') or 'Not provided'}",
              f"- Conversation turns: {len(entries)}", ""]
@@ -873,6 +878,8 @@ def parser():
     p.add_argument("--timeout", type=positive_timeout, default=120.0, help="HTTP request timeout in seconds (default 120; max 600). Raise for large long-thread detail pages.")
     p.add_argument("--thread-id", action="append", default=[], help="Export just this thread ID; repeat for several.")
     p.add_argument("--thread-url", action="append", default=[], help="Select an HTTPS Perplexity thread URL; UUID paths work directly, slugs must resolve through account history.")
+    p.add_argument("--force-unlock", action="store_true",
+                   help="Remove only an empty .export.lock in the output folder, then exit. Refuses nonempty locks.")
     return p
 
 
@@ -880,20 +887,35 @@ def main(argv=None):
     args = parser().parse_args(argv)
     if args.from_raw and (args.thread_id or args.thread_url):
         parser().error("--from-raw cannot be combined with thread IDs or URLs")
+    if args.force_unlock and (args.from_raw or args.thread_id or args.thread_url or args.limit):
+        parser().error("--force-unlock cannot be combined with export options")
     root = Path(args.output).expanduser().resolve()
+    lock = root / ".export.lock"
+    if args.force_unlock:
+        if not lock.exists():
+            print("No export lock present.")
+            return 0
+        if not lock.is_dir():
+            print("Export lock path exists but is not a directory; refusing to modify it.", file=sys.stderr)
+            return 1
+        if not release_lock(lock):
+            print("Refusing to remove a nonempty .export.lock; verify no exporter is running.", file=sys.stderr)
+            return 1
+        print("Removed empty export lock.")
+        return 0
     report = {"format": FORMAT, "run_id": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8],
               "started_at": now(), "mode": "offline" if args.from_raw else "live",
               "scope": "limited" if args.limit else ("specified_threads" if args.thread_id or args.thread_url else "all_discovered"),
               "account_completeness": "not_verified", "exported": 0, "errors": [], "warnings": []}
     locked = False
-    lock = root / ".export.lock"
     try:
         root.mkdir(parents=True, exist_ok=True)
         try:
             lock.mkdir()
             locked = True
         except FileExistsError:
-            raise ExportError("Another export may be running in this folder. See README for stale-lock recovery.") from None
+            raise ExportError("Another export may be running in this folder. See README for stale-lock recovery "
+                             "(or use --force-unlock on an empty .export.lock).") from None
         for uid in args.thread_id:
             valid_id(uid)
         for url in args.thread_url:
