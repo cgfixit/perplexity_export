@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -15,6 +15,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  workflows:
+    name: Validate GitHub workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run checksum-pinned actionlint
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location --retry 3 --max-time 60 \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            --output "$RUNNER_TEMP/actionlint.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color
+
   test:
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
@@ -31,6 +49,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements.txt
       - name: Offline regression and subprocess tests (no installed application dependencies)
         run: python -m unittest -v
       - name: Install actual HTTP client
@@ -41,12 +61,13 @@ jobs:
           python -c "import pplx_export; c = pplx_export.Client('ci_fixture=not-a-real-session'); c.close()"
           python pplx_export.py --help
           python live_verify.py --help
+          python public_verify.py --help
       - name: Check Python syntax
-        run: python -m compileall -q pplx_export.py live_verify.py scripts test_export.py test_ci.py test_resilience.py
+        run: python -m compileall -q pplx_export.py live_verify.py public_verify.py scripts tests test_export.py test_ci.py test_resilience.py
 
   package:
     name: Build verified source package
-    needs: test
+    needs: [test, workflows]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -1,0 +1,41 @@
+name: Public thread verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      thread_url:
+        description: Public Perplexity UUID URL (no private content)
+        required: true
+        type: string
+      expected_turns:
+        description: Exact prompt-response count independently checked in browser
+        required: true
+        type: string
+      expected_text:
+        description: Harmless distinctive phrase independently checked in browser
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  public-thread:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Verify public content without account cookies
+        env:
+          THREAD_URL: ${{ inputs.thread_url }}
+          EXPECTED_TURNS: ${{ inputs.expected_turns }}
+          EXPECTED_TEXT: ${{ inputs.expected_text }}
+        run: python public_verify.py --thread-url "$THREAD_URL" --expected-turns "$EXPECTED_TURNS" --expect-text "$EXPECTED_TEXT"
