@@ -27,7 +27,7 @@ import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
 BASE = "https://www.perplexity.ai"
@@ -37,6 +37,12 @@ IMPORT_FORMAT = "pplx-markdown-import/1"
 SCRIPT_DIR = Path(__file__).resolve().parent
 ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
 MAX_PAGES = 10000
+S3_ASSET_HOST = "ppl-ai-file-upload.s3.amazonaws.com"
+CLOUDFRONT_ASSET_HOST = "d2z0o16i8xm8ak.cloudfront.net"
+S3_V2_SIGNATURE_KEYS = frozenset({"AWSAccessKeyId", "Expires", "Signature", "x-amz-security-token"})
+S3_V4_SIGNATURE_KEYS = frozenset({"X-Amz-Algorithm", "X-Amz-Credential", "X-Amz-Date", "X-Amz-Expires",
+                                  "X-Amz-SignedHeaders", "X-Amz-Signature", "X-Amz-Security-Token"})
+CLOUDFRONT_SIGNATURE_KEYS = frozenset({"Key-Pair-Id", "Policy", "Signature"})
 
 
 class ExportError(Exception):
@@ -350,6 +356,70 @@ def validate_entries(page):
     return page["entries"]
 
 
+def stable_asset_url(value):
+    """Remove only renewable signatures from known Perplexity asset URLs."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port is not None:
+            return None
+    except ValueError:
+        return None
+    pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    keys = [key for key, _ in pairs]
+    if len(keys) != len(set(keys)):
+        return None
+    present = set(keys)
+    query = dict(pairs)
+    if parsed.hostname == S3_ASSET_HOST:
+        required_v2 = {"AWSAccessKeyId", "Expires", "Signature"}
+        required_v4 = {"X-Amz-Algorithm", "X-Amz-Credential", "X-Amz-Date", "X-Amz-Expires",
+                       "X-Amz-SignedHeaders", "X-Amz-Signature"}
+        has_v2 = required_v2 <= present and all(query[key] for key in required_v2)
+        has_v4 = required_v4 <= present and all(query[key] for key in required_v4)
+        if has_v2 == has_v4:
+            return None
+        if has_v2:
+            signature_keys = S3_V2_SIGNATURE_KEYS
+        else:
+            signature_keys = S3_V4_SIGNATURE_KEYS
+    elif (parsed.hostname == CLOUDFRONT_ASSET_HOST and CLOUDFRONT_SIGNATURE_KEYS <= present and
+          all(query[key] for key in CLOUDFRONT_SIGNATURE_KEYS)):
+        signature_keys = CLOUDFRONT_SIGNATURE_KEYS
+    else:
+        return None
+    stable_query = urlencode([(key, item) for key, item in pairs if key not in signature_keys])
+    return urlunsplit(("https", parsed.hostname, parsed.path, stable_query, parsed.fragment))
+
+
+def equivalent_entry_value(left, right):
+    """Compare duplicate entries while tolerating only renewed asset signatures."""
+    if left == right:
+        return True
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, str):
+        stable_left, stable_right = stable_asset_url(left), stable_asset_url(right)
+        return stable_left is not None and stable_left == stable_right
+    if isinstance(left, list):
+        return len(left) == len(right) and all(equivalent_entry_value(a, b) for a, b in zip(left, right))
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(equivalent_entry_value(left[key], right[key]) for key in left)
+    return False
+
+
+def stable_entry_value(value):
+    """Canonicalize renewable asset URLs for a repeatable transcript digest."""
+    if isinstance(value, str):
+        return stable_asset_url(value) or value
+    if isinstance(value, list):
+        return [stable_entry_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: stable_entry_value(item) for key, item in value.items()}
+    return value
+
+
 def join_entries(pages):
     out, identified = [], {}
     for page in pages:
@@ -358,7 +428,7 @@ def join_entries(pages):
             if uid is not None:
                 key = str(uid)
                 if key in identified:
-                    if identified[key] != entry:
+                    if not equivalent_entry_value(identified[key], entry):
                         raise ExportError("An entry changed across pages. Retry while the conversation is idle.")
                     continue
                 identified[key] = entry
@@ -366,6 +436,12 @@ def join_entries(pages):
             # turns may contain exactly the same question and answer.
             out.append(entry)
     return out
+
+
+def transcript_digest(raw):
+    """Hash every deduplicated entry while ignoring renewable asset signatures."""
+    _, _, entries, _ = normalize_raw(raw)
+    return digest(stable_entry_value(entries))
 
 
 def fetch_detail(client, uid, meta=None, checkpoint=lambda *args: None):
