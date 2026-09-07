@@ -1,4 +1,5 @@
 import contextlib
+import re
 import hashlib
 import io
 import os
@@ -89,6 +90,48 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("pplx_cookies", workflow.lower())
         self.assertNotIn("secrets.", workflow.lower())
         self.assertNotIn("upload-artifact", workflow)
+
+    def _workflow_texts(self):
+        root = Path(__file__).parent / ".github" / "workflows"
+        return {path.name: path.read_text(encoding="utf-8") for path in sorted(root.glob("*.yml"))}
+
+    def test_workflows_forbid_pull_request_target_and_secrets(self):
+        for name, workflow in self._workflow_texts().items():
+            with self.subTest(workflow=name):
+                self.assertNotIn("pull_request_target", workflow)
+                self.assertNotIn("secrets.", workflow)
+
+    def test_actions_uses_are_sha_pinned_with_version_comment(self):
+        pin = re.compile(r"^\s*-\s*uses:\s+actions/\S+@[0-9a-f]{40}\s+#\s+v\S+\s*$")
+        for name, workflow in self._workflow_texts().items():
+            for lineno, line in enumerate(workflow.splitlines(), 1):
+                if "uses: actions/" not in line:
+                    continue
+                with self.subTest(workflow=name, line=lineno, text=line.strip()):
+                    self.assertRegex(line, pin)
+
+    def test_checkout_steps_set_persist_credentials_false(self):
+        for name, workflow in self._workflow_texts().items():
+            lines = workflow.splitlines()
+            for lineno, line in enumerate(lines):
+                if "uses: actions/checkout@" not in line:
+                    continue
+                window = "\n".join(lines[lineno:lineno + 8])
+                with self.subTest(workflow=name, line=lineno + 1):
+                    self.assertIn("persist-credentials: false", window)
+
+    def test_ci_security_release_workflows_keep_hardening_markers(self):
+        texts = self._workflow_texts()
+        for required in ("ci.yml", "security.yml", "release.yml"):
+            self.assertIn(required, texts)
+        self.assertIn("actions/dependency-review-action@", texts["security.yml"])
+        self.assertIn("if: github.event_name == 'pull_request'", texts["security.yml"])
+        self.assertIn("workflow_call:", texts["ci.yml"])
+        self.assertIn("workflow_call:", texts["security.yml"])
+        self.assertIn("uses: ./.github/workflows/ci.yml", texts["release.yml"])
+        self.assertIn("uses: ./.github/workflows/security.yml", texts["release.yml"])
+        self.assertIn("uses: ./.github/workflows/resilience.yml", texts["release.yml"])
+        self.assertIn("needs: [ci, security, resilience]", texts["release.yml"])
 
 
 class PackageTests(unittest.TestCase):
