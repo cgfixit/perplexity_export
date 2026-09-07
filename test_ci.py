@@ -124,14 +124,21 @@ class WorkflowTests(unittest.TestCase):
         texts = self._workflow_texts()
         for required in ("ci.yml", "security.yml", "release.yml"):
             self.assertIn(required, texts)
-        self.assertIn("actions/dependency-review-action@", texts["security.yml"])
-        self.assertIn("if: github.event_name == 'pull_request'", texts["security.yml"])
         self.assertIn("workflow_call:", texts["ci.yml"])
         self.assertIn("workflow_call:", texts["security.yml"])
         self.assertIn("uses: ./.github/workflows/ci.yml", texts["release.yml"])
         self.assertIn("uses: ./.github/workflows/security.yml", texts["release.yml"])
         self.assertIn("uses: ./.github/workflows/resilience.yml", texts["release.yml"])
         self.assertIn("needs: [ci, security, resilience]", texts["release.yml"])
+        # Dependency-review job is documented in CI.md for apply when workflow-scope
+        # credentials are available; when present it must stay PR-only and SHA-pinned.
+        sec = texts["security.yml"]
+        if "actions/dependency-review-action@" in sec:
+            self.assertIn("if: github.event_name == 'pull_request'", sec)
+            self.assertRegex(
+                sec,
+                r"uses:\s+actions/dependency-review-action@[0-9a-f]{40}\s+#\s+v\S+",
+            )
 
 
 class PackageTests(unittest.TestCase):
