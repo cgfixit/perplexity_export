@@ -18,7 +18,8 @@ service.
 - Do not turn malformed or partial responses into empty successful exports.
 - Keep live account verification local-only; automatic CI uses fake responses.
   The manual public-thread workflow may only use anonymous public UUID access,
-  independently checked expectations, and no transcript artifacts or cookies.
+  independently checked expectations, a complete-content digest, temporary
+  local artifacts that are deleted, and no transcript uploads or cookies.
 
 ## Development
 

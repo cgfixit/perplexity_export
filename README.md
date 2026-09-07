@@ -143,24 +143,31 @@ See `CI.md` for the limitations and how to verify a real browser-visible thread.
 
 Perplexity's **Share → Anyone with the link** setting allows viewers to open a
 session ([sharing documentation](https://www.perplexity.ai/help-center/en/articles/10354769-what-is-a-thread)).
-The optional **Public thread verification** Actions workflow uses
-`public_verify.py` to retrieve a public UUID thread anonymously through the
-same pagination and rendering code as the exporter. Run it manually with the
-public URL, exact browser-checked turn count, and a harmless expected phrase.
-No cookies are loaded and no transcripts are stored or uploaded. Inputs are
-visible in workflow metadata, so use only intentionally public test content.
+The optional **Public thread verification** Actions workflow runs a real,
+anonymous export on both Python 3.12 and 3.13. It follows every returned cursor,
+writes raw JSON, Markdown, records, index, and report into temporary storage,
+reopens those files, rebuilds the Markdown through the offline CLI, and compares
+a SHA-256 covering every canonicalized API entry. The temporary directories are
+deleted and never uploaded. No cookies or repository secrets are used.
 
 ```powershell
-python public_verify.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" --expected-turns 2 --expect-text "harmless phrase"
+python public_verify.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" --inspect
+python public_verify.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" --expected-turns 2 --expect-text "harmless phrase" --expected-sha256 "64-lowercase-hex-characters"
 ```
 
-For counts without a content expectation, use `--inspect` instead of the two
-expectation flags locally. Inspection is not independent content verification.
+Use a clean local `--inspect` run to obtain the structural digest, then
+independently confirm the turn count and harmless phrase in the browser before
+dispatching Actions. Workflow inputs remain visible in run metadata, so use only
+intentionally public test content. The digest ignores only renewable signatures
+on exact known Perplexity S3/CloudFront asset URLs; changed text, object paths,
+hosts, ordinary URL parameters, or other fields still fail validation.
+
 Only UUID URLs are supported anonymously; title slugs still require account
 history resolution through the authenticated exporter. Availability can vary
 by runner. HTTP denial, incomplete pagination, changed entries, rendering review
-notes, and mismatched content fail the check. The optional live workflow is not
-a release gate. See [CI.md](CI.md#shared-links-and-hosted-runners) for limits and
-the observed shared-link test. Do not put account cookies in CI secrets.
+notes, mismatched content, disk round-trip failures, and offline-rebuild drift
+fail the check. The optional live workflow is not a release gate. See
+[CI.md](CI.md#shared-links-and-hosted-runners) for limits and the observed
+shared-link test. Do not put account cookies in CI secrets.
 
 This is a personal utility, not an official Perplexity integration.
