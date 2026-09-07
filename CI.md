@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | Main pushes, PRs, manual, reusable call | Ubuntu, Windows, macOS × Python 3.10, 3.12, 3.13; regression tests; actual curl_cffi installation/client construction; syntax checks; verified source ZIP and checksum |
 | `.github/workflows/resilience.yml` | Main pushes, PRs, weekly, manual, reusable call | Recovery faults and shipped ZIP subprocesses without site-packages on Ubuntu, Windows, macOS × Python 3.12 and 3.13 |
-| `.github/workflows/security.yml` | Main pushes, PRs, weekly, manual | Bandit medium/high findings and pip-audit advisories for resolved runtime and CI-tool dependencies |
+| `.github/workflows/security.yml` | Main pushes, PRs, weekly, manual, reusable call | Bandit medium/high findings and pip-audit advisories; on PRs only, SHA-pinned dependency-review-action (contents: read) |
 | `.github/workflows/release.yml` | A pushed `v*` tag | Requires CI, security, and resilience for that tag, then verifies and publishes the allowlisted source ZIP and checksum |
 | `.github/dependabot.yml` | Weekly | Proposed updates to pinned GitHub Actions and pip requirements |
 | `.github/workflows/public-thread.yml` | Weekly or manual | Real anonymous native Markdown export, exact-byte save/reopen, and optional complete-file digest on Python 3.12/3.13; no cookies or transcript artifacts |
@@ -22,9 +22,12 @@ Normal checks use `contents: read`; only the gated release-publishing job receiv
 transcript artifacts. The package is assembled from an explicit source-file
 allowlist, not a recursive archive of the workspace.
 
-To require CI before merges, configure a branch ruleset in GitHub Settings and
-select the resulting checks. Adding workflow files does not itself enable branch
-protection. Consider a ruleset limiting who may create release tags as well.
+**Branch protection / rulesets are not configured on `main` yet.** Adding
+workflow files does not enable protection by itself. In GitHub Settings → Rules
+→ Rulesets, create a ruleset for `main` and require these check names (as shown
+in Actions / the merge box once the workflows have run): **CI**, **Security**,
+and **Resilience**. Optionally also require **Security / Dependency review** on
+PRs. Consider a separate ruleset limiting who may create release tags.
 
 ## What CI does and does not verify
 
