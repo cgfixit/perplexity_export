@@ -1,5 +1,10 @@
 # Perplexity Export — Detailed User Guide
 
+For the new `--thread-url` option, signed-in smoke checks, and GitHub Actions,
+see [CI and live verification](CI.md). The verifier runs locally, never with
+account cookies in GitHub Actions. Being signed in in your browser alone does
+not transfer that login to Python; use your own cookie file as explained below.
+
 Run this script on your own computer. It writes **one ordinary `.md` file per
 conversation**, containing the prompt/response turns returned by Perplexity.
 Open them in any text editor or Markdown viewer. No Obsidian, Notion, paid API

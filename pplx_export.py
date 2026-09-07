@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 BASE = "https://www.perplexity.ai"
 API_VERSION = "2.18"
@@ -104,6 +104,58 @@ def digest(value):
 def api_path(name, params=None):
     query = [("version", API_VERSION), ("source", "default"), *(params or [])]
     return "/rest/thread/" + name + "?" + urlencode(query)
+
+
+def parse_thread_url(value):
+    """Return a validated URL path selector; never request the user-supplied URL."""
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        raise ExportError("Invalid Perplexity thread URL.") from None
+    if (parsed.scheme != "https" or parsed.netloc not in {"perplexity.ai", "www.perplexity.ai"}
+            or any(c in value for c in ("\\", "\n", "\r", "\t"))):
+        raise ExportError("Thread URL must use HTTPS on perplexity.ai or www.perplexity.ai, without credentials or a port.")
+    match = re.fullmatch(r"/(?:search|computer/tasks)/([A-Za-z0-9][A-Za-z0-9._-]{0,255})/?", parsed.path)
+    if not match:
+        raise ExportError("Unsupported thread URL path. Use /search/<slug-or-uuid> or /computer/tasks/<uuid>.")
+    return match.group(1)
+
+
+def select_threads(client, ids, urls, checkpoint):
+    selected = {valid_id(uid): {"uuid": uid} for uid in ids}
+    slugs = []
+    for url in urls:
+        selector = parse_thread_url(url)
+        try:
+            uid = str(UUID(selector))
+        except ValueError:
+            slugs.append(selector)
+        else:
+            selected[uid] = {"uuid": uid}
+    if slugs:
+        rows = fetch_index(client, checkpoint)
+        recent = client.request("GET", api_path("list_recent", [("exclude_asi", "false")]))
+        checkpoint("recent", 0, recent)
+        extras, _ = list_items(recent)
+        rows.extend(extras)
+        for slug in slugs:
+            matches = {}
+            for row in rows:
+                candidate = row.get("slug")
+                if candidate != slug and isinstance(row.get("url"), str):
+                    candidate_url = row["url"]
+                    if candidate_url.startswith("/"):
+                        candidate_url = BASE + candidate_url
+                    try:
+                        candidate = parse_thread_url(candidate_url)
+                    except ExportError:
+                        continue
+                if candidate == slug:
+                    matches[identifier(row)] = row
+            if len(matches) != 1:
+                raise ExportError("Shared-link slug could not be resolved uniquely in your account history. Use --thread-id with the actual UUID from the browser's /rest/thread/ request; no slug-to-ID guessing was attempted.")
+            selected.update(matches)
+    return list(selected.values())
 
 
 def detail_path(uid, cursor, first):
@@ -634,9 +686,9 @@ def run_live(args, root, report, client_factory=None):
         atomic_json(inside(run_dir, f"received/{kind}/{number:05d}.json"), payload)
 
     try:
-        if args.thread_id:
-            threads = [{"uuid": uid} for uid in dict.fromkeys(args.thread_id)]
-            report["discovery"] = "explicit_thread_ids"
+        if args.thread_id or args.thread_url:
+            threads = select_threads(client, args.thread_id, args.thread_url, checkpoint)
+            report["discovery"] = "explicit_thread_selection"
         else:
             threads = fetch_index(client, checkpoint)
             report["discovery"] = "paginated_listing_plus_recent"
@@ -704,17 +756,18 @@ def parser():
     p.add_argument("--limit", type=nonnegative_int, default=0, help="Limit conversations for a smoke test; 0 means all discovered.")
     p.add_argument("--delay", type=nonnegative_float, default=1.0, help="Minimum seconds between API requests.")
     p.add_argument("--thread-id", action="append", default=[], help="Export just this thread ID; repeat for several.")
+    p.add_argument("--thread-url", action="append", default=[], help="Select an HTTPS Perplexity thread URL; UUID paths work directly, slugs must resolve through account history.")
     return p
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
-    if args.from_raw and args.thread_id:
-        parser().error("--from-raw and --thread-id cannot be combined")
+    if args.from_raw and (args.thread_id or args.thread_url):
+        parser().error("--from-raw cannot be combined with thread IDs or URLs")
     root = Path(args.output).expanduser().resolve()
     report = {"format": FORMAT, "run_id": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8],
               "started_at": now(), "mode": "offline" if args.from_raw else "live",
-              "scope": "limited" if args.limit else ("specified_threads" if args.thread_id else "all_discovered"),
+              "scope": "limited" if args.limit else ("specified_threads" if args.thread_id or args.thread_url else "all_discovered"),
               "account_completeness": "not_verified", "exported": 0, "errors": [], "warnings": []}
     locked = False
     lock = root / ".export.lock"
@@ -727,6 +780,8 @@ def main(argv=None):
             raise ExportError("Another export may be running in this folder. See README for stale-lock recovery.") from None
         for uid in args.thread_id:
             valid_id(uid)
+        for url in args.thread_url:
+            parse_thread_url(url)
         print(f"Saving Markdown locally to: {root / 'markdown'}")
         if args.from_raw:
             run_offline(args, root, report)

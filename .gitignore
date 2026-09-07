@@ -22,6 +22,7 @@ INDEX.md
 
 # Local environments and generated files
 .venv/
+dist/
 venv/
 __pycache__/
 *.py[cod]

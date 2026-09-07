@@ -4,7 +4,7 @@ Export accessible Perplexity conversations to **ordinary Markdown files on the
 computer running the script**. One file contains each conversation's returned
 prompt/response turns. No Obsidian, Notion, or API subscription is required.
 
-**Status:** 36 offline regression tests pass. Authenticated live account export
+**Status:** Includes offline regression tests and cross-platform GitHub Actions. Authenticated live account export
 has not been verified. Perplexity's unofficial website endpoints can change or
 omit account content; a successful crawl is not proof of a complete account backup.
 
@@ -108,5 +108,12 @@ Always check `export_report.json` before relying on an export.
 - [Detailed user guide](USER_GUIDE.md): installation, cookies, export, verification,
   recovery, troubleshooting, and repository publishing.
 - `py pplx_export.py --help`: exact command-line options.
+- [CI and live verification](CI.md): cross-platform checks, security scans,
+  release ZIPs, and a local signed-in smoke test.
+
+Select a thread link with `--thread-url "https://www.perplexity.ai/search/..."`.
+UUID links work directly; title-slug links must resolve through authenticated
+account history. Shared links absent from that history require the actual UUID.
+See `CI.md` for the limitations and how to verify a real browser-visible thread.
 
 This is a personal utility, not an official Perplexity integration.

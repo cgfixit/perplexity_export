@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ['3.10', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Offline regression and subprocess tests (no installed application dependencies)
+        run: python -m unittest -v
+      - name: Install actual HTTP client
+        run: python -m pip install -r requirements.txt
+      - name: Verify installation and client construction without sending a request
+        run: |
+          python -m pip check
+          python -c "import pplx_export; c = pplx_export.Client('ci_fixture=not-a-real-session'); c.close()"
+          python pplx_export.py --help
+          python live_verify.py --help
+      - name: Check Python syntax
+        run: python -m compileall -q pplx_export.py live_verify.py scripts test_export.py test_ci.py
+
+  package:
+    name: Build verified source package
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - run: python scripts/build_release.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: source-package
+          path: |
+            dist/perplexity_export.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
