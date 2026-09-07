@@ -212,7 +212,7 @@ def retry_wait(header, attempt):
 
 
 class Client:
-    def __init__(self, cookie_header, delay=1.0, session=None):
+    def __init__(self, cookie_header, delay=1.0, session=None, timeout=120.0):
         # None explicitly selects anonymous public-thread verification.
         value = "" if cookie_header is None else cookie_header.strip().lstrip("\ufeff")
         if value.lower().startswith("cookie:"):
@@ -227,6 +227,7 @@ class Client:
             session = requests.Session(impersonate="chrome")
         self.session = session
         self.delay = delay
+        self.timeout = float(timeout)
         self.last_request = None
         # Send this explicit header ONLY to our fixed HTTPS API origin. Never
         # attach it to a generic cookie jar or follow redirects with it.
@@ -255,7 +256,7 @@ class Client:
             if self.last_request is not None:
                 time.sleep(max(0, self.delay - (time.monotonic() - self.last_request)))
             self.last_request = time.monotonic()
-            kwargs = dict(headers=self.headers, timeout=60, allow_redirects=False, verify=True)
+            kwargs = dict(headers=self.headers, timeout=self.timeout, allow_redirects=False, verify=True)
             if body is not None:
                 kwargs["json"] = body
             try:
@@ -782,7 +783,7 @@ def run_live(args, root, report, client_factory=None):
         cookie = Path(args.cookies).expanduser().read_text(encoding="utf-8-sig")
     except (OSError, UnicodeError):
         raise ExportError("Cannot read cookie file. See the setup steps in README.md.") from None
-    client = (client_factory or Client)(cookie, args.delay)
+    client = (client_factory or Client)(cookie, args.delay, timeout=args.timeout)
     run_dir = inside(root, f"runs/{report['run_id']}")
 
     def checkpoint(kind, number, payload):
@@ -852,6 +853,16 @@ def nonnegative_float(value):
     return number
 
 
+def positive_timeout(value):
+    """HTTP timeout seconds: positive, finite, and capped to avoid accidental hangs."""
+    number = float(value)
+    if number <= 0 or not math.isfinite(number):
+        raise argparse.ArgumentTypeError("Must be a finite positive number of seconds.")
+    if number > 600:
+        raise argparse.ArgumentTypeError("Must be at most 600 seconds.")
+    return number
+
+
 def parser():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("-o", "--output", default=str(SCRIPT_DIR / "pplx_export"))
@@ -859,6 +870,7 @@ def parser():
     p.add_argument("--from-raw", help="Rebuild Markdown from this raw JSON directory; no login or network.")
     p.add_argument("--limit", type=nonnegative_int, default=0, help="Limit conversations for a smoke test; 0 means all discovered.")
     p.add_argument("--delay", type=nonnegative_float, default=1.0, help="Minimum seconds between API requests.")
+    p.add_argument("--timeout", type=positive_timeout, default=120.0, help="HTTP request timeout in seconds (default 120; max 600). Raise for large long-thread detail pages.")
     p.add_argument("--thread-id", action="append", default=[], help="Export just this thread ID; repeat for several.")
     p.add_argument("--thread-url", action="append", default=[], help="Select an HTTPS Perplexity thread URL; UUID paths work directly, slugs must resolve through account history.")
     return p
