@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | Main pushes, PRs, manual, reusable call | Ubuntu, Windows, macOS × Python 3.10, 3.12, 3.13; regression tests; actual curl_cffi installation/client construction; syntax checks; verified source ZIP and checksum |
 | `.github/workflows/resilience.yml` | Main pushes, PRs, weekly, manual, reusable call | Recovery faults and shipped ZIP subprocesses without site-packages on Ubuntu, Windows, macOS × Python 3.12 and 3.13 |
-| `.github/workflows/security.yml` | Main pushes, PRs, weekly, manual, reusable call | Bandit medium/high findings and pip-audit advisories; on PRs only, SHA-pinned dependency-review-action (contents: read) |
+| `.github/workflows/security.yml` | Main pushes, PRs, weekly, manual, reusable call | Bandit medium/high findings and pip-audit advisories for resolved runtime and CI-tool dependencies |
 | `.github/workflows/release.yml` | A pushed `v*` tag | Requires CI, security, and resilience for that tag, then verifies and publishes the allowlisted source ZIP and checksum |
 | `.github/dependabot.yml` | Weekly | Proposed updates to pinned GitHub Actions and pip requirements |
 | `.github/workflows/public-thread.yml` | Weekly or manual | Real anonymous native Markdown export, exact-byte save/reopen, and optional complete-file digest on Python 3.12/3.13; no cookies or transcript artifacts |
@@ -28,6 +28,32 @@ workflow files does not enable protection by itself. In GitHub Settings → Rule
 in Actions / the merge box once the workflows have run): **CI**, **Security**,
 and **Resilience**. Optionally also require **Security / Dependency review** on
 PRs. Consider a separate ruleset limiting who may create release tags.
+
+
+### Pending: PR dependency review job
+
+`main` / this branch still need the following job appended to
+`.github/workflows/security.yml` (PR-only so `workflow_call` from `release.yml`
+is unchanged). Pin is `actions/dependency-review-action` **v5.0.0** at
+`a1d282b36b6f3519aa1f3fc636f609c47dddb294`. Top-level `permissions` stay
+`contents: read` only.
+
+```yaml
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+```
+
+Apply via the GitHub web file editor on branch `grok/ci-actions-harden`, or after
+`gh auth refresh -h github.com -s workflow` (Contents API rejects workflow edits
+without that OAuth scope).
 
 ## What CI does and does not verify
 
