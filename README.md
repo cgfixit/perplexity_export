@@ -9,7 +9,7 @@ computer running the script**. One file contains each conversation's returned
 prompt/response turns. No Obsidian, Notion, or API subscription is required.
 
 **Status:** Includes offline regression tests and cross-platform GitHub Actions. Authenticated live account export
-has not been verified. Perplexity's unofficial website endpoints can change or
+has not been verified (YET; will update shortly but so far it may need more work on larger threads (after first 100 or so it was timing out didnt verify the cause) with that virtual forever scrolling dom lol). Perplexity's unofficial website endpoints can change or
 omit account content; a successful crawl is not proof of a complete account backup.
 
 ## Quick start
