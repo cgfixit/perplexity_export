@@ -26,6 +26,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: python scripts/build_release.py
+      - name: Verify release artifact before publishing
+        run: python scripts/verify_release.py dist/perplexity_export.zip dist/SHA256SUMS.txt
       - name: Publish tested source ZIP and SHA-256 checksum
         env:
           GH_TOKEN: ${{ github.token }}

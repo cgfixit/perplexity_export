@@ -1,0 +1,3 @@
+interface:
+  display_name: "Perplexityexport Release"
+  short_description: "Verify Python matrix and release artifacts"

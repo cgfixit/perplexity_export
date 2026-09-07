@@ -1,0 +1,44 @@
+name: Resilience
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resilience-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recovery:
+    name: Recovery (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run focused recovery and artifact tests
+        env:
+          PYTHONHASHSEED: random
+        run: python -m unittest -v test_resilience.py
+      - name: Re-run the complete offline suite with randomized hashing
+        env:
+          PYTHONHASHSEED: random
+        run: python -m unittest -v
+      - name: Compile every shipped Python module
+        run: python -m compileall -q pplx_export.py live_verify.py scripts test_export.py test_ci.py test_resilience.py

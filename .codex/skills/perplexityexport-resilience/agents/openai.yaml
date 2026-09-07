@@ -1,0 +1,3 @@
+interface:
+  display_name: "Perplexityexport Resilience"
+  short_description: "Harden export failure and recovery paths"
