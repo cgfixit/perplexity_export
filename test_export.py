@@ -300,6 +300,7 @@ class HTTPTests(unittest.TestCase):
         args, kwargs = session.request.call_args
         self.assertTrue(args[1].startswith(e.BASE + "/rest/thread/"))
         self.assertFalse(kwargs["allow_redirects"]); self.assertTrue(kwargs["verify"])
+        self.assertEqual(kwargs["timeout"], 120.0)
         self.assertNotIn("cookies", kwargs)
         self.assertNotIn("User-Agent", kwargs["headers"])
         for path in ("https://evil.example/a", "//evil.example/a", "/rest/thread/\\evil"):
@@ -334,6 +335,23 @@ class HTTPTests(unittest.TestCase):
         with self.assertRaises(e.ExportError):
             e.Client("a=b", 0, session).request("GET", e.detail_path(UID, 0, True))
         self.assertEqual(session.request.call_count, 1)
+
+    def test_configurable_timeout_reaches_session_request(self):
+        response = Mock(status_code=200, headers={}); response.json.return_value = {}
+        session = Mock(); session.request.return_value = response
+        client = e.Client("a=b", 0, session, timeout=240.5)
+        client.request("GET", e.detail_path(UID, 0, True))
+        self.assertEqual(session.request.call_args.kwargs["timeout"], 240.5)
+        self.assertFalse(session.request.call_args.kwargs["allow_redirects"])
+        self.assertNotIn("cookies", session.request.call_args.kwargs)
+
+    def test_cli_timeout_default_and_validation(self):
+        args = e.parser().parse_args([])
+        self.assertEqual(args.timeout, 120.0)
+        self.assertEqual(e.parser().parse_args(["--timeout", "90"]).timeout, 90.0)
+        for bad in ("0", "-1", "nan", "inf", "601"):
+            with self.subTest(bad=bad), self.assertRaises(SystemExit):
+                e.parser().parse_args(["--timeout", bad])
 
 
 if __name__ == "__main__":
