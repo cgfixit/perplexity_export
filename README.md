@@ -139,16 +139,37 @@ UUID links work directly; title-slug links must resolve through authenticated
 account history. Shared links absent from that history require the actual UUID.
 See `CI.md` for the limitations and how to verify a real browser-visible thread.
 
-## Can CI export a shared Perplexity link?
+## Export or verify a public shared link
 
 Perplexity's **Share → Anyone with the link** setting allows viewers to open a
 session ([sharing documentation](https://www.perplexity.ai/help-center/en/articles/10354769-what-is-a-thread)).
-The optional **Public thread verification** Actions workflow runs a real,
-anonymous export on both Python 3.12 and 3.13. It follows every returned cursor,
-writes raw JSON, Markdown, records, index, and report into temporary storage,
-reopens those files, rebuilds the Markdown through the offline CLI, and compares
-a SHA-256 covering every canonicalized API entry. The temporary directories are
-deleted and never uploaded. No cookies or repository secrets are used.
+The **Public thread verification** Actions workflow runs a real, anonymous
+native Markdown export on both Python 3.12 and 3.13. Click **Run workflow** and
+leave both fields blank to check the repository's harmless example URL against
+its pinned full-file SHA-256. It also runs weekly as a non-release canary. The
+file is written to temporary runner storage, reopened byte-for-byte, deleted,
+and never uploaded. No cookies or repository secrets are used.
+
+After cloning, this one command exports the same public example to a local file:
+
+```powershell
+python public_verify.py --thread-url "https://www.perplexity.ai/search/65f1c6ad-8600-4393-aec2-0a4f7d8a1e8d" --native-export --output ".\perplexity-public-export.md"
+```
+
+Add the current example baseline to require an exact content match:
+
+```powershell
+python public_verify.py --thread-url "https://www.perplexity.ai/search/65f1c6ad-8600-4393-aec2-0a4f7d8a1e8d" --native-export --output ".\perplexity-public-export.md" --expected-sha256 "c5e710abce41a79780e0d010e2123f5a55707121628f1667e99cb3497f89f78f"
+```
+
+For another harmless public UUID URL, enter only that URL in the workflow. It
+will verify and hash the complete returned Markdown without requiring a baseline.
+Optionally enter a SHA-256 from a previous native-export run to detect any byte
+change. Workflow inputs and the resulting byte count/digest remain visible in
+run metadata and logs.
+
+The older structured inspection and strict content checks remain available for
+threads whose detail cursor reaches an explicit end:
 
 ```powershell
 python public_verify.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" --inspect
@@ -156,17 +177,16 @@ python public_verify.py --thread-url "https://www.perplexity.ai/search/THREAD_UU
 ```
 
 Use a clean local `--inspect` run to obtain the structural digest, then
-independently confirm the turn count and harmless phrase in the browser before
-dispatching Actions. Workflow inputs remain visible in run metadata, so use only
-intentionally public test content. The digest ignores only renewable signatures
-on exact known Perplexity S3/CloudFront asset URLs; changed text, object paths,
-hosts, ordinary URL parameters, or other fields still fail validation.
+independently confirm the turn count and harmless phrase in the browser. The
+structured digest ignores only renewable signatures on exact known Perplexity
+S3/CloudFront asset URLs; changed text, object paths, hosts, ordinary URL
+parameters, or other fields still fail validation.
 
 Only UUID URLs are supported anonymously; title slugs still require account
 history resolution through the authenticated exporter. Availability can vary
-by runner. HTTP denial, incomplete pagination, changed entries, rendering review
-notes, mismatched content, disk round-trip failures, and offline-rebuild drift
-fail the check. The optional live workflow is not a release gate. See
+by runner. The native workflow fails on HTTP denial, malformed, empty,
+oversized, or non-UTF-8 responses, digest mismatch, and disk round-trip failure.
+The optional live workflow is not a release gate. See
 [CI.md](CI.md#shared-links-and-hosted-runners) for limits and the observed
 shared-link test. Do not put account cookies in CI secrets.
 

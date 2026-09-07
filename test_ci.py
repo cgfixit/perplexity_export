@@ -75,6 +75,22 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(err.exception.code, 2)
 
 
+class WorkflowTests(unittest.TestCase):
+    def test_public_workflow_is_a_secret_free_native_export_canary(self):
+        workflow = (Path(__file__).parent / ".github" / "workflows" / "public-thread.yml").read_text(encoding="utf-8")
+        self.assertIn("schedule:", workflow)
+        self.assertIn("--native-export", workflow)
+        self.assertIn("--output \"$RUNNER_TEMP/perplexity-public-export.md\"", workflow)
+        self.assertIn("if: always()", workflow)
+        self.assertIn("65f1c6ad-8600-4393-aec2-0a4f7d8a1e8d", workflow)
+        self.assertIn("c5e710abce41a79780e0d010e2123f5a55707121628f1667e99cb3497f89f78f", workflow)
+        self.assertNotIn("expected_turns:", workflow)
+        self.assertNotIn("expected_text:", workflow)
+        self.assertNotIn("pplx_cookies", workflow.lower())
+        self.assertNotIn("secrets.", workflow.lower())
+        self.assertNotIn("upload-artifact", workflow)
+
+
 class PackageTests(unittest.TestCase):
     def test_package_is_reproducible_and_excludes_cookies(self):
         with tempfile.TemporaryDirectory() as td:

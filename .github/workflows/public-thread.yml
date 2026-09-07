@@ -1,23 +1,17 @@
 name: Public thread verification
 
 on:
+  schedule:
+    - cron: '23 7 * * 1'
   workflow_dispatch:
     inputs:
       thread_url:
-        description: Public Perplexity UUID URL (no private content)
-        required: true
-        type: string
-      expected_turns:
-        description: Exact prompt-response count independently checked in browser
-        required: true
-        type: string
-      expected_text:
-        description: Harmless distinctive phrase independently checked in browser
-        required: true
+        description: Public UUID URL; blank uses the repository's harmless example
+        required: false
         type: string
       expected_sha256:
-        description: Complete-content SHA-256 from a prior clean local inspection
-        required: true
+        description: Optional native Markdown SHA-256; blank uses the example baseline only
+        required: false
         type: string
 
 permissions:
@@ -48,9 +42,25 @@ jobs:
       - run: python -m pip install --disable-pip-version-check -r requirements.txt
       - name: Verify public content without account cookies
         env:
-          THREAD_URL: ${{ inputs.thread_url }}
-          EXPECTED_TURNS: ${{ inputs.expected_turns }}
-          EXPECTED_TEXT: ${{ inputs.expected_text }}
-          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+          INPUT_THREAD_URL: ${{ inputs.thread_url }}
+          INPUT_EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+          DEFAULT_THREAD_URL: https://www.perplexity.ai/search/65f1c6ad-8600-4393-aec2-0a4f7d8a1e8d
+          DEFAULT_SHA256: c5e710abce41a79780e0d010e2123f5a55707121628f1667e99cb3497f89f78f
           PYTHONHASHSEED: random
-        run: python public_verify.py --thread-url "$THREAD_URL" --expected-turns "$EXPECTED_TURNS" --expect-text "$EXPECTED_TEXT" --expected-sha256 "$EXPECTED_SHA256"
+        shell: bash
+        run: |
+          set -euo pipefail
+          thread_url="${INPUT_THREAD_URL:-$DEFAULT_THREAD_URL}"
+          expected_sha256="$INPUT_EXPECTED_SHA256"
+          if [[ -z "$INPUT_THREAD_URL" && -z "$expected_sha256" ]]; then
+            expected_sha256="$DEFAULT_SHA256"
+          fi
+          args=(--thread-url "$thread_url" --native-export --output "$RUNNER_TEMP/perplexity-public-export.md")
+          if [[ -n "$expected_sha256" ]]; then
+            args+=(--expected-sha256 "$expected_sha256")
+          fi
+          python public_verify.py "${args[@]}"
+      - name: Delete temporary export
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/perplexity-public-export.md"
