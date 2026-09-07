@@ -1,0 +1,32 @@
+# Credentials and local configuration
+pplx_cookies.txt
+*cookies*.txt
+*cookies*.json
+cookies/
+.env
+.env.*
+*.pem
+*.key
+
+# Exported conversations: never commit account data
+pplx_export/
+rebuilt/
+my-perplexity-history/
+markdown/
+raw/
+records/
+runs/
+export_report.json
+INDEX.md
+.export.lock/
+
+# Local environments and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
