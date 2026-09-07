@@ -101,6 +101,7 @@ There is no stale-cache skip and no need for `--refresh` or `--redo`. A rerun
 captures added messages and repairs missing Markdown. It can take time for large
 accounts: requests are sequential, with a one-second minimum interval by default.
 Use `--delay 2` to slow down. Rate-limit responses trigger bounded retries.
+HTTP requests default to a **120-second** timeout (was previously hardcoded at 60s) so longer detail pages have more room; raise it with `--timeout 300` (max 600) if a large thread still times out.
 
 Existing complete exports remain if a subsequent download fails. A run also
 keeps its received pages on failure. Completed Markdown and raw files use atomic
@@ -234,6 +235,7 @@ On Mac/Linux, use `echo $?` immediately after the exporter.
 | Invalid cookie header | Paste only the full request `Cookie` header value on one line. Do not paste an entire request, a shell command, or a `Set-Cookie` response header. |
 | HTTP 401/403 | Confirm you can view your history in the logged-in browser. Recopy the current cookies. If still blocked, stop and retry later; do not share the cookies for diagnosis. |
 | HTTP 429 | Let the script honor the retry delay. If it ultimately stops, wait and retry later with `--delay 2` or a longer interval. |
+| Network request failed / timeout on a long thread | Detail pages for ~100+ turns can be slow. Retry with a higher `--timeout` (default 120; max 600), e.g. `py .\pplx_export.py --timeout 300 --thread-id YOUR_THREAD_UUID` or `python3 pplx_export.py --timeout 300 --thread-id YOUR_THREAD_UUID`. |
 | Missing cursor / schema changed | The website protocol may have changed. Received JSON is retained under the failed run. Treat that transcript as incomplete; do not change the script to ignore the error. |
 | Unknown blocks / review notes | Open the affected Markdown; new block data is included as JSON. Check the raw file before deciding whether the readable export is sufficient. |
 | Old imports return exit 1 | Read the notes: a legacy format cannot establish its historical pagination completeness. The imported Markdown may still be usable. |
