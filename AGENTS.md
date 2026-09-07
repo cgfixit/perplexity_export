@@ -24,7 +24,7 @@ service.
 
 ## Development
 
-Use a focused `codex/*` branch for changes. Inspect `git status` before editing
+Use a focused `codex/*` or `grok/*` branch for changes. Inspect `git status` before editing
 and never rewrite or force-push existing remote work. The standard checks are:
 
 ```powershell
