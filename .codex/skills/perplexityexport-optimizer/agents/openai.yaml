@@ -1,0 +1,3 @@
+interface:
+  display_name: "Perplexityexport Optimizer"
+  short_description: "Optimize exporter reliability and privacy"

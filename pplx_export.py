@@ -90,6 +90,23 @@ def atomic_json(path, value):
     atomic_text(path, json.dumps(value, indent=2, ensure_ascii=False) + "\n")
 
 
+def release_lock(lock):
+    """Remove only an empty lock directory; preserve unexpected contents."""
+    try:
+        lock.rmdir()
+    except OSError:
+        return False
+    return True
+
+
+def close_client(client, report):
+    """Do not discard completed exports because a client cleanup hook failed."""
+    try:
+        client.close()
+    except Exception:
+        report["warnings"].append("HTTP client cleanup failed; inspect the export report before retrying.")
+
+
 def read_json(path):
     try:
         return json.loads(path.read_text(encoding="utf-8-sig"))
@@ -731,7 +748,7 @@ def run_live(args, root, report, client_factory=None):
                 report["errors"].append({"uuid": uid, "error": str(exc)})
                 print(f"  Failed: {exc}")
     finally:
-        client.close()
+        close_client(client, report)
 
 
 def nonnegative_int(value):
@@ -802,7 +819,12 @@ def main(argv=None):
             except (ExportError, OSError, KeyError, TypeError):
                 report["errors"].append({"error": "Could not save index/report. Completed transcript files may still be available."})
                 print("Could not save the final index/report.", file=sys.stderr)
-            lock.rmdir()
+            if not release_lock(lock):
+                report["errors"].append({"error": "Could not release the export lock; verify no exporter is running before removing it."})
+                try:
+                    save_summary(root, report)
+                except (ExportError, OSError, KeyError, TypeError):
+                    print("Could not record the export-lock cleanup failure.", file=sys.stderr)
     print(f"Exported: {report['exported']}; errors: {len(report['errors'])}; review notes: {len(report['warnings'])}.")
     if report["warnings"]:
         print("Review export_report.json and the export notes in affected transcripts.")

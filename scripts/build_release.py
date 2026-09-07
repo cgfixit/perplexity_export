@@ -8,7 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FILES = ("pplx_export.py", "live_verify.py", "requirements.txt", "requirements-ci.txt",
          "README.md", "USER_GUIDE.md", "CI.md", ".gitignore", "test_export.py",
-         "test_ci.py", "scripts/build_release.py")
+         "test_ci.py", "test_resilience.py", "scripts/build_release.py",
+         "scripts/verify_release.py")
 
 
 def build(root, output):

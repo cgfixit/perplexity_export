@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import io
 import os
 import tempfile
@@ -86,6 +87,8 @@ class PackageTests(unittest.TestCase):
             with zipfile.ZipFile(a) as package:
                 self.assertEqual(set(package.namelist()), {"perplexity_export/" + n for n in FILES})
             self.assertTrue((a.parent / "SHA256SUMS.txt").is_file())
+            checksum = (a.parent / "SHA256SUMS.txt").read_text(encoding="utf-8")
+            self.assertEqual(checksum, f"{hashlib.sha256(a.read_bytes()).hexdigest()}  {a.name}\n")
 
     def test_actual_package_can_be_built(self):
         with tempfile.TemporaryDirectory() as td:

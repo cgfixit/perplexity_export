@@ -5,6 +5,7 @@
 | Configuration | Trigger | Checks / output |
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | Branch pushes, PRs, manual dispatch | Ubuntu, Windows, macOS × Python 3.10, 3.12, 3.13; dependency-free regression tests; actual curl_cffi installation/client construction; syntax checks; source ZIP and SHA-256 checksum |
+| `.github/workflows/resilience.yml` | Branch pushes, PRs, weekly, manual | Focused recovery and artifact tests plus a randomized-hash full suite on Ubuntu and Windows × Python 3.12 and 3.13 |
 | `.github/workflows/security.yml` | Main pushes, PRs, weekly, manual | Bandit medium/high findings and pip-audit advisories for resolved runtime and CI-tool dependencies |
 | `.github/workflows/release.yml` | A pushed `v*` tag | Runs CI and security for that tag, then publishes the allowlisted source ZIP and checksum as a GitHub Release |
 | `.github/dependabot.yml` | Weekly | Proposed updates to pinned GitHub Actions and pip requirements |
@@ -89,6 +90,7 @@ py -m pip install -r requirements-ci.txt
 py -m bandit -ll pplx_export.py live_verify.py scripts/build_release.py
 py -m pip_audit --strict -r requirements.txt -r requirements-ci.txt --progress-spinner off
 py scripts/build_release.py
+py scripts/verify_release.py dist/perplexity_export.zip dist/SHA256SUMS.txt
 ```
 
 Audit results reflect currently resolved dependencies and the advisory database
