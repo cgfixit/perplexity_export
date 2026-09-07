@@ -303,6 +303,15 @@ def list_items(payload):
     return rows, envelope
 
 
+def listing_total(envelope):
+    values = [envelope[key] for key in ("total_count", "total") if key in envelope]
+    if not values:
+        return None
+    if any(type(value) is not int or value < 0 for value in values) or len(set(values)) != 1:
+        raise ExportError("Invalid or conflicting advertised thread-list total.")
+    return values[0]
+
+
 def fetch_index(client, checkpoint=lambda *args: None):
     found, pages, tokens = {}, set(), set()
     offset = 0
@@ -312,11 +321,11 @@ def fetch_index(client, checkpoint=lambda *args: None):
         checkpoint("listing", page_no, payload)
         rows, wrapper = list_items(payload)
         more = wrapper.get("has_next_page")
-        total = wrapper.get("total_count", wrapper.get("total"))
+        total = listing_total(wrapper)
         if not rows:
             if more is True:
                 raise ExportError("Thread-list pagination stopped making progress before its end.")
-            if isinstance(total, int) and not isinstance(total, bool) and len(found) != total:
+            if total is not None and len(found) != total:
                 raise ExportError("Thread-list ended with an inconsistent advertised total.")
             break
         page_key = digest([identifier(r) for r in rows])
@@ -326,9 +335,8 @@ def fetch_index(client, checkpoint=lambda *args: None):
         pages.add(page_key)
         found.update(new)
         print(f"  Discovered {len(found)} conversations.")
-        total = wrapper.get("total_count", wrapper.get("total"))
         if more is False:
-            if isinstance(total, int) and not isinstance(total, bool) and len(found) != total:
+            if total is not None and len(found) != total:
                 raise ExportError("Thread-list ended with an inconsistent advertised total.")
             break
         next_cursor = wrapper.get("next_cursor")

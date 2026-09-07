@@ -84,7 +84,7 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(client.calls[-1][2]["offset"], 125)
 
     def test_index_recognized_wrapper_and_total(self):
-        client = QueueClient([{"threads": [{"uuid": UID}], "has_next_page": False, "total": 1}])
+        client = QueueClient([{"threads": [{"uuid": UID}], "has_next_page": False, "total_count": 1, "total": 1}])
         self.assertEqual(e.fetch_index(client)[0]["uuid"], UID)
 
     def test_bad_listing_schemas_fail(self):
@@ -101,6 +101,11 @@ class ExportTests(unittest.TestCase):
         for total in (0, 2):
             with self.subTest(total=total), self.assertRaises(e.ExportError):
                 e.fetch_index(QueueClient([{"threads": [{"uuid": UID}], "has_next_page": False, "total": total}]))
+
+    def test_invalid_or_conflicting_advertised_listing_total_fails(self):
+        for totals in ({"total": "1"}, {"total": False}, {"total": -1}, {"total_count": 1, "total": 0}):
+            with self.subTest(totals=totals), self.assertRaises(e.ExportError):
+                e.fetch_index(QueueClient([{**totals, "threads": [{"uuid": UID}], "has_next_page": False}]))
 
     def test_empty_last_page_cannot_hide_advertised_total(self):
         with self.assertRaises(e.ExportError):
