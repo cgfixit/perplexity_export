@@ -207,10 +207,11 @@ def retry_wait(header, attempt):
 
 class Client:
     def __init__(self, cookie_header, delay=1.0, session=None):
-        value = cookie_header.strip().lstrip("\ufeff")
+        # None explicitly selects anonymous public-thread verification.
+        value = "" if cookie_header is None else cookie_header.strip().lstrip("\ufeff")
         if value.lower().startswith("cookie:"):
             value = value.split(":", 1)[1].strip()
-        if not value or "=" not in value or "\r" in value or "\n" in value:
+        if cookie_header is not None and (not value or "=" not in value or "\r" in value or "\n" in value):
             raise ExportError("Cookie file must contain one Cookie header value on one line.")
         if session is None:
             try:
@@ -224,10 +225,12 @@ class Client:
         # Send this explicit header ONLY to our fixed HTTPS API origin. Never
         # attach it to a generic cookie jar or follow redirects with it.
         self.headers = {
-            "Cookie": value, "Accept": "application/json",
+            "Accept": "application/json",
             "Origin": BASE, "Referer": BASE + "/library",
             "x-app-apiclient": "default", "x-app-apiversion": API_VERSION,
         }
+        if cookie_header is not None:
+            self.headers["Cookie"] = value
         for part in value.split(";"):
             key, _, token = part.strip().partition("=")
             if key == "csrftoken":
@@ -693,7 +696,7 @@ def run_offline(args, root, report):
 def run_live(args, root, report, client_factory=None):
     try:
         cookie = Path(args.cookies).expanduser().read_text(encoding="utf-8-sig")
-    except OSError:
+    except (OSError, UnicodeError):
         raise ExportError("Cannot read cookie file. See the setup steps in README.md.") from None
     client = (client_factory or Client)(cookie, args.delay)
     run_dir = inside(root, f"runs/{report['run_id']}")

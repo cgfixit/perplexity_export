@@ -12,8 +12,10 @@ jobs:
     uses: ./.github/workflows/ci.yml
   security:
     uses: ./.github/workflows/security.yml
+  resilience:
+    uses: ./.github/workflows/resilience.yml
   publish:
-    needs: [ci, security]
+    needs: [ci, security, resilience]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

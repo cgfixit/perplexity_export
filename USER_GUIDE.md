@@ -158,6 +158,14 @@ as unverified. New response schemas are reported, not silently treated as empty.
 
 ## Validation and provenance
 
+Python 3.12 and 3.13 are tested on Linux, Windows, and macOS. Use a stable
+interpreter; CI also retains Python 3.10 coverage. Tests now execute the actual
+release ZIP from a separate directory, preserving Unicode through repeated
+offline rebuilds and checking that failed reruns retain prior transcripts.
+See [CI.md](CI.md) for the distinction between these checks and real account
+verification, including why a publicly shared link alone does not authenticate
+this exporter.
+
 Run the included standard-library tests (no test dependencies required):
 
 ```powershell

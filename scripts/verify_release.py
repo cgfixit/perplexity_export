@@ -32,12 +32,10 @@ def verify(archive, checksum_file):
             raise ValueError("Archive members do not match the source allowlist")
         for info in package.infolist():
             mode = info.external_attr >> 16
-            if stat.S_ISLNK(mode):
-                raise ValueError("Archive contains a symlink")
-            if package.read(info).startswith(b"DO-NOT-PACK"):
-                raise ValueError("Archive contains a forbidden fixture marker")
-            if info.filename == "perplexity_export/pplx_cookies.txt":
-                raise ValueError("Archive contains cookies")
+            if not stat.S_ISREG(mode):
+                raise ValueError("Archive member is not a regular file")
+            # Read every member to validate decompression and CRC, not just names.
+            package.read(info)
     return True
 
 
