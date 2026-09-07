@@ -97,9 +97,10 @@ class ExportTests(unittest.TestCase):
         with self.assertRaisesRegex(e.ExportError, "Repeated"):
             e.fetch_index(QueueClient([page, page]))
 
-    def test_incomplete_advertised_listing_total_fails(self):
-        with self.assertRaises(e.ExportError):
-            e.fetch_index(QueueClient([{"threads": [{"uuid": UID}], "has_next_page": False, "total": 2}]))
+    def test_inconsistent_advertised_listing_total_fails(self):
+        for total in (0, 2):
+            with self.subTest(total=total), self.assertRaises(e.ExportError):
+                e.fetch_index(QueueClient([{"threads": [{"uuid": UID}], "has_next_page": False, "total": total}]))
 
     def test_empty_last_page_cannot_hide_advertised_total(self):
         with self.assertRaises(e.ExportError):
