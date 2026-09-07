@@ -139,6 +139,27 @@ class PublicTests(unittest.TestCase):
                 self.assertEqual(status, 1)
                 self.assertNotIn("fake private text", output)
 
+    def test_broad_exception_path_omits_exception_args_from_output(self):
+        """Bare except Exception must never echo exception args (URLs, bodies, secrets)."""
+        secret = "SECRET_EXCEPTION_ARG_do_not_leak"
+        cases = (
+            RuntimeError(secret),
+            ValueError(secret, {"url": "https://example.test/leak"}),
+            OSError(secret),
+            Exception(secret),
+        )
+        generic = "FAIL: anonymous retrieval, pagination, rendering, or cleanup failed."
+        for error in cases:
+            with self.subTest(error=type(error).__name__):
+                status, output = self.invoke([error], "--inspect")
+                self.assertEqual(status, 1)
+                self.assertIn(generic, output)
+                self.assertNotIn(secret, output)
+                self.assertNotIn("example.test/leak", output)
+                self.assertNotIn("PASS:", output)
+                self.assertNotIn(repr(error), output)
+                self.assertNotIn(str(error), output)
+
     def test_changed_source_url_across_pages_is_not_silently_deduplicated(self):
         before = turn()
         before["blocks"].append({"web_result_block": {"web_results": [{"url": "https://example.test/a"}]}})

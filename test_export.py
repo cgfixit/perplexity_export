@@ -290,6 +290,27 @@ class ExportTests(unittest.TestCase):
         status, client = self.run_live([])
         self.assertEqual(status, 1); self.assertEqual(client.calls, [])
 
+    def test_title_heading_escapes_markdown_metacharacters(self):
+        cases = (
+            ("pipe | pipe", "# pipe \\| pipe"),
+            ("brackets [x]", "# brackets \\[x\\]"),
+            ("line\nbreak\rkeep", "# line break keep"),
+            ("# leading hash", "# \\# leading hash"),
+            ("has <tag> and # hash", "# has \\<tag> and \\# hash"),
+        )
+        for title, expected_h1 in cases:
+            with self.subTest(title=title):
+                raw = snapshot()
+                raw["pages"][0]["thread_metadata"]["title"] = title
+                _, markdown, row = e.render(raw, UID)
+                self.assertEqual(markdown.splitlines()[0], expected_h1)
+                self.assertNotIn("\n", row["title"])
+                self.assertNotIn("\r", row["title"])
+
+    def test_md_heading_matches_label_plus_hash_and_angle_escapes(self):
+        value = "# Title | [link] <em>"
+        self.assertEqual(e.md_heading(value), e.md_label(value).replace("#", "\\#").replace("<", "\\<"))
+
 
 class HTTPTests(unittest.TestCase):
     def test_cookie_stays_on_fixed_origin_and_redirects_disabled(self):

@@ -130,7 +130,9 @@ Use the thread's UUID, not its title or a whole URL. Repeat `--thread-id` for
 several known conversations. A limited or targeted run is labeled as such in the
 report. Do not run two exports into the same folder concurrently. If the process
 was forcibly killed, verify it has stopped before removing the empty
-`.export.lock` directory from the output folder and rerunning.
+`.export.lock` directory from the output folder and rerunning. Prefer
+`py .\pplx_export.py -o <output> --force-unlock`, which removes only an empty
+lock directory and refuses nonempty ones.
 
 ## How to interpret completion
 
@@ -239,7 +241,7 @@ On Mac/Linux, use `echo $?` immediately after the exporter.
 | Old imports return exit 1 | Read the notes: a legacy format cannot establish its historical pagination completeness. The imported Markdown may still be usable. |
 | No chats found | Verify the browser account and the report. An empty listing is flagged for review, not treated as proof that your account has no history. |
 | Disk or permission error | Choose a writable output location with sufficient free space. Existing successfully replaced files remain; rerun after fixing the local issue. |
-| Another export may be running | Stop the other exporter or choose a different output directory. Remove a stale lock only after verifying the original process has ended. |
+| Another export may be running | Stop the other exporter or choose a different output directory. After confirming the process ended, clear an empty lock with `--force-unlock` (nonempty locks are refused). |
 
 ## Backup, updates, and privacy
 

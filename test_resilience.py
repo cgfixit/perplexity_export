@@ -22,6 +22,38 @@ class CleanupTests(unittest.TestCase):
             self.assertFalse(e.release_lock(lock))
             self.assertTrue(lock.is_dir())
 
+    def test_force_unlock_removes_empty_lock_only(self):
+        with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()) as out:
+            root = Path(td) / "out"
+            root.mkdir()
+            lock = root / ".export.lock"
+            lock.mkdir()
+            status = e.main(["-o", str(root), "--force-unlock"])
+            self.assertEqual(status, 0)
+            self.assertFalse(lock.exists())
+            self.assertIn("Removed empty export lock", out.getvalue())
+
+    def test_force_unlock_refuses_nonempty_lock(self):
+        with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+            root = Path(td) / "out"
+            root.mkdir()
+            lock = root / ".export.lock"
+            lock.mkdir()
+            (lock / "owner.txt").write_text("still running")
+            status = e.main(["-o", str(root), "--force-unlock"])
+            self.assertEqual(status, 1)
+            self.assertTrue(lock.is_dir())
+            self.assertTrue((lock / "owner.txt").is_file())
+            self.assertIn("nonempty", err.getvalue())
+
+    def test_force_unlock_noop_when_absent(self):
+        with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()) as out:
+            root = Path(td) / "out"
+            root.mkdir()
+            status = e.main(["-o", str(root), "--force-unlock"])
+            self.assertEqual(status, 0)
+            self.assertIn("No export lock present", out.getvalue())
+
     def test_client_cleanup_failure_keeps_completed_export_and_reports_warning(self):
         class CloseFailClient(QueueClient):
             def close(self):

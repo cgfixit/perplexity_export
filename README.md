@@ -96,6 +96,10 @@ Credentials go only to the fixed Perplexity HTTPS origin. Redirects are refused;
 attachment URLs are never requested. Requests are sequential and rate-limit
 responses trigger bounded retries.
 
+If an export was killed mid-run, verify no exporter is still running, then clear
+an **empty** `.export.lock` with `python pplx_export.py -o <output> --force-unlock`
+(or remove the empty directory by hand). Nonempty locks are refused.
+
 **Never commit cookies, exported chats, or raw snapshots, even to a private
 repository.** `.gitignore` covers default output paths and common secret files.
 Use an output directory outside the checkout for custom export locations.
