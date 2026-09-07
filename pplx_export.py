@@ -316,8 +316,8 @@ def fetch_index(client, checkpoint=lambda *args: None):
         if not rows:
             if more is True:
                 raise ExportError("Thread-list pagination stopped making progress before its end.")
-            if isinstance(total, int) and not isinstance(total, bool) and len(found) < total:
-                raise ExportError("Thread-list ended before its advertised total.")
+            if isinstance(total, int) and not isinstance(total, bool) and len(found) != total:
+                raise ExportError("Thread-list ended with an inconsistent advertised total.")
             break
         page_key = digest([identifier(r) for r in rows])
         new = {identifier(r): r for r in rows if identifier(r) not in found}
@@ -328,8 +328,8 @@ def fetch_index(client, checkpoint=lambda *args: None):
         print(f"  Discovered {len(found)} conversations.")
         total = wrapper.get("total_count", wrapper.get("total"))
         if more is False:
-            if isinstance(total, int) and not isinstance(total, bool) and len(found) < total:
-                raise ExportError("Thread-list ended before its advertised total.")
+            if isinstance(total, int) and not isinstance(total, bool) and len(found) != total:
+                raise ExportError("Thread-list ended with an inconsistent advertised total.")
             break
         next_cursor = wrapper.get("next_cursor")
         if next_cursor is not None and next_cursor != "":
