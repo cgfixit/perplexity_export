@@ -70,6 +70,20 @@ class ArtifactTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "checksum"):
                 verify(archive, sums)
 
+    def test_failed_release_build_retains_existing_artifacts(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(__file__).resolve().parent
+            output = Path(td)
+            archive = output / "perplexity_export.zip"
+            sums = output / "SHA256SUMS.txt"
+            archive.write_bytes(b"previous archive")
+            sums.write_bytes(b"previous checksum")
+            with patch("scripts.build_release.zipfile.ZipFile.writestr", side_effect=OSError("disk full")), self.assertRaises(OSError):
+                build(root, output)
+            self.assertEqual(archive.read_bytes(), b"previous archive")
+            self.assertEqual(sums.read_bytes(), b"previous checksum")
+            self.assertFalse(list(output.glob("*.tmp")))
+
 
 class RequestRecoveryTests(unittest.TestCase):
     def test_transient_statuses_stop_at_five_attempts(self):
