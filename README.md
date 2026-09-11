@@ -148,22 +148,51 @@ Always check `export_report.json` before relying on an export.
   release ZIPs, and a local signed-in smoke test.
 
 Select a thread link with `--thread-url "https://www.perplexity.ai/search/..."`.
-UUID links work directly; title-slug links must resolve through authenticated
-account history. Shared links absent from that history require the actual UUID.
-See `CI.md` for the limitations and how to verify a real browser-visible thread.
+UUID links work directly. Public `/search/<title>-XXXX` share slugs can be decoded
+to UUIDs offline (urlsafe-base64 suffix). Other title slugs still resolve through
+authenticated account history. See `CI.md` for limits and DOM vs native export.
 
 ## Export or verify a public shared link
 
 Perplexity's **Share → Anyone with the link** setting allows viewers to open a
 session ([sharing documentation](https://www.perplexity.ai/help-center/en/articles/10354769-what-is-a-thread)).
+
+### Paths compared
+
+| Path | What it is | Fidelity | Auth |
+| --- | --- | --- | --- |
+| `public_verify.py --native-export` | Perplexity **Markdown API** (`POST /rest/thread/export`) | Convenient; **can omit early turns** on long shares while keeping the opener title | Anonymous for many public UUIDs |
+| `public_verify.py --inspect` / structured detail | Unofficial REST detail pagination | Fail-closed on cursor loops; not a browser dump | Anonymous for some public UUIDs |
+| `dom_export.py` | **DOM virtual-scroll** of the share UI (Playwright) | Share-fidelity: ordered rendered turns, truncation banner, continuation links | Anonymous for public shares; **owner cookies / signed-in browser** for private shares |
+
+`--native-export` is **not** a browser-faithful transcript. Prefer `dom_export.py`
+when the question is “does this match what the shared session shows?”
+
+### DOM share export (optional browser)
+
+Default CI and `python -m unittest` stay green **without** Playwright. Install
+only when you need share-fidelity capture:
+
+```powershell
+python -m pip install -r requirements-dom.txt
+playwright install chromium
+python dom_export.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" -o ".\share.md" --report ".\share.json"
+```
+
+The JSON report includes `turns_seen`, `scroll_exhausted`, `ui_truncation_banner`,
+`continuation_urls`, and `access` (`public` | `private` | `denied`). Title-slug
+share URLs (`/search/<title>-XXXX`) decode to UUIDs via the urlsafe-base64 suffix
+(no network). Do not commit cookies or large transcripts.
+
+### Native Markdown API canary
+
 The **Public thread verification** Actions workflow runs a real, anonymous
 native Markdown export on both Python 3.12 and 3.13. Click **Run workflow** and
 leave both fields blank to check the repository's harmless example URL against
 its pinned full-file SHA-256. It also runs weekly as a non-release canary. The
 file is written to temporary runner storage, reopened byte-for-byte, deleted,
-and never uploaded. No cookies or repository secrets are used.
-
-After cloning, this one command exports the same public example to a local file:
+and never uploaded. No cookies or repository secrets are used. A matching SHA
+proves the API bytes are stable — **not** that the file equals the full UI.
 
 ```powershell
 python public_verify.py --thread-url "https://www.perplexity.ai/search/65f1c6ad-8600-4393-aec2-0a4f7d8a1e8d" --native-export --output ".\perplexity-public-export.md"
@@ -176,7 +205,7 @@ python public_verify.py --thread-url "https://www.perplexity.ai/search/65f1c6ad-
 ```
 
 For another harmless public UUID URL, enter only that URL in the workflow. It
-will verify and hash the complete returned Markdown without requiring a baseline.
+will verify and hash the returned Markdown without requiring a baseline.
 Optionally enter a SHA-256 from a previous native-export run to detect any byte
 change. Workflow inputs and the resulting byte count/digest remain visible in
 run metadata and logs.
@@ -195,11 +224,12 @@ structured digest ignores only renewable signatures on exact known Perplexity
 S3/CloudFront asset URLs; changed text, object paths, hosts, ordinary URL
 parameters, or other fields still fail validation.
 
-Only UUID URLs are supported anonymously; title slugs still require account
-history resolution through the authenticated exporter. Availability can vary
-by runner. The native workflow fails on HTTP denial, malformed, empty,
-oversized, or non-UTF-8 responses, digest mismatch, and disk round-trip failure.
-The optional live workflow is not a release gate. See
+Anonymous tooling accepts UUID URLs and decodable `/search/<title>-XXXX` share
+slugs. Undecodable title slugs still need the UUID (or authenticated history
+resolution in `pplx_export.py`). Availability can vary by runner. The native
+workflow fails on HTTP denial, malformed, empty, oversized, or non-UTF-8
+responses, digest mismatch, and disk round-trip failure. The optional live
+workflow is not a release gate. See
 [CI.md](CI.md#shared-links-and-hosted-runners) for limits and the observed
 shared-link test. Do not put account cookies in CI secrets.
 

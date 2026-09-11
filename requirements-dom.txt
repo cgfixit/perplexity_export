@@ -1,0 +1,5 @@
+# Optional DOM share-export path (Playwright + Chromium).
+# Default CI / unittest stays green without these packages.
+#   pip install -r requirements-dom.txt
+#   playwright install chromium
+playwright>=1.40,<2

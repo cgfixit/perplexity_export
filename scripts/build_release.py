@@ -8,11 +8,11 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ("pplx_export.py", "live_verify.py", "public_verify.py", "requirements.txt", "requirements-ci.txt",
-         "README.md", "USER_GUIDE.md", "CI.md", ".gitignore", "test_export.py",
+FILES = ("pplx_export.py", "live_verify.py", "public_verify.py", "dom_export.py", "requirements.txt", "requirements-ci.txt",
+         "requirements-dom.txt", "README.md", "USER_GUIDE.md", "CI.md", ".gitignore", "test_export.py",
          "test_ci.py", "test_resilience.py", "scripts/build_release.py",
          "scripts/verify_release.py", "tests/__init__.py", "tests/test_distribution.py",
-         "tests/test_public.py")
+         "tests/test_public.py", "tests/test_dom_export.py")
 
 
 def atomic_bytes(path, data):

@@ -18,9 +18,11 @@ service.
 - Do not turn malformed or partial responses into empty successful exports.
 - Keep live account verification local-only; automatic release CI uses fake
   responses. The isolated public-thread canary may use only anonymous public
-  UUID access, Perplexity's native Markdown export, a pinned harmless baseline,
-  temporary local artifacts that are deleted, and no transcript uploads or
-  cookies. It must remain outside release and merge gates.
+  UUID access, Perplexity's native Markdown export (incomplete for some long
+  shares), a pinned harmless baseline, temporary local artifacts that are
+  deleted, and no transcript uploads or cookies. Share-fidelity DOM export is
+  optional (`requirements-dom.txt`) and must remain outside default CI. The
+  canary must remain outside release and merge gates.
 
 ## Development
 
@@ -29,7 +31,7 @@ and never rewrite or force-push existing remote work. The standard checks are:
 
 ```powershell
 python -m unittest -v
-python -m compileall -q pplx_export.py live_verify.py public_verify.py scripts tests test_export.py test_ci.py test_resilience.py
+python -m compileall -q pplx_export.py live_verify.py public_verify.py dom_export.py scripts tests test_export.py test_ci.py test_resilience.py
 python -S -m unittest -v test_resilience tests.test_distribution
 python scripts/build_release.py
 python scripts/verify_release.py dist/perplexity_export.zip dist/SHA256SUMS.txt

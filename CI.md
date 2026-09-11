@@ -131,7 +131,7 @@ Distribution tests run the actual packaged CLI, not a source-checkout import.
 ```powershell
 py -m unittest -v
 py -m pip install -r requirements-ci.txt
-py -m bandit -ll -r pplx_export.py live_verify.py public_verify.py scripts
+py -m bandit -ll -r pplx_export.py live_verify.py public_verify.py dom_export.py scripts
 py -m pip_audit --strict -r requirements.txt -r requirements-ci.txt --progress-spinner off
 py scripts/build_release.py
 py scripts/verify_release.py dist/perplexity_export.zip dist/SHA256SUMS.txt
@@ -149,7 +149,8 @@ or advisory silently suppressed by the workflow.
 describes public viewing through “Anyone with the link.” It does not document
 an anonymous export API contract. The regular exporter still requires account
 cookies; `public_verify.py` explicitly constructs an anonymous client and only
-selects the supplied UUID, never listing history or resolving slugs.
+selects the supplied UUID (or a share slug whose final segment decodes to that
+UUID), never listing account history.
 
 A credential-free check of the supplied shared page on September 7, 2026 returned
 HTTP 403 to a plain client, while the anonymous thread API and in-app browser
@@ -168,6 +169,16 @@ The public workflow now uses this single complete-export operation instead of
 the broken detail cursor for its canary. This endpoint is still unofficial and
 may change.
 
+Treat `--native-export` as **Perplexity's MD API**, not a DOM dump. On some long
+shares the returned Markdown can omit the first visible user prompt while still
+using that prompt as the remote filename/title. Native SHA canaries therefore
+prove API-byte stability, not start→finish UI parity. For share-fidelity capture,
+use optional `dom_export.py` (`pip install -r requirements-dom.txt` then
+`playwright install chromium`). Default CI does **not** install Playwright or
+browsers; DOM live checks are local-only. Public shares can be scrolled
+anonymously; private shares need owner cookies / a signed-in browser profile and
+must never place those cookies in Actions secrets.
+
 Open Actions → Public thread verification → Run workflow and leave both fields
 blank to use the example URL and pinned digest. A custom URL needs only the full
 public UUID URL; its SHA-256 field is optional. Inputs are passed through
@@ -178,12 +189,14 @@ in an `always()` cleanup step. Inputs and digest remain visible: use harmless
 public content only.
 
 `python public_verify.py --thread-url URL --native-export --output FILE.md`
-performs and saves the same complete native export locally. Add
+performs and saves the same native API export locally (remote `/` in titles is
+allowed; `--output` is the only filesystem path used). Add
 `--expected-sha256 DIGEST` for an exact baseline. `--inspect` remains a
 diagnostic for the structured detail API and deliberately fails on incomplete
-pagination. Private threads continue to use local `live_verify.py` with the
-user's own cookies. Neither public verification nor local checks can prove
-account-wide coverage.
+pagination. For UI-parity exports: `python dom_export.py --thread-url URL -o FILE.md
+--report FILE.json`. Private account threads continue to use local
+`live_verify.py` / `pplx_export.py` with the user's own cookies. Neither public
+verification nor local checks can prove account-wide coverage.
 
 ## Create a release after reviewing the checks
 
