@@ -260,20 +260,32 @@ def _extract_turns(page) -> list:
     return payload or []
 
 
+def _host_allowed(host: str) -> bool:
+    """Exact registrable host or subdomain (avoid evilcgfixit.com false matches)."""
+    host = (host or "").lower().split("@")[-1].split(":")[0].strip(".")
+    if not host:
+        return False
+    allowed = ("perplexity.ai", "cgfixit.com")
+    return any(host == root or host.endswith("." + root) for root in allowed)
+
+
 def _continuation_urls(page_text: str) -> list:
     found = []
     seen = set()
     for match in URL_RE.finditer(page_text or ""):
         url = match.group(0).rstrip(".,;")
         host = urlsplit(url).netloc.lower()
-        if host.endswith("perplexity.ai") or host.endswith("cgfixit.com"):
-            # Prefer links near Part 2 / continuation wording.
-            start = max(0, match.start() - 80)
-            window = page_text[start: match.end() + 40]
-            if CONTINUATION_HINT_RE.search(window) or host.endswith("cgfixit.com"):
-                if url not in seen:
-                    seen.add(url)
-                    found.append(url)
+        if not _host_allowed(host):
+            continue
+        # Prefer links near Part 2 / continuation wording; always keep cgfixit redirects.
+        start = max(0, match.start() - 80)
+        window = page_text[start: match.end() + 40]
+        bare = host.split(":")[0].lstrip(".").lower()
+        is_cgfixit = bare == "cgfixit.com" or bare.endswith(".cgfixit.com")
+        if CONTINUATION_HINT_RE.search(window) or is_cgfixit:
+            if url not in seen:
+                seen.add(url)
+                found.append(url)
     return found
 
 

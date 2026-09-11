@@ -142,3 +142,14 @@ class DomLiveTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HostAllowTests(unittest.TestCase):
+    def test_host_allowlist_rejects_suffix_lookalikes(self):
+        from dom_export import _host_allowed
+        self.assertTrue(_host_allowed("cgfixit.com"))
+        self.assertTrue(_host_allowed("www.cgfixit.com"))
+        self.assertTrue(_host_allowed("www.perplexity.ai"))
+        self.assertFalse(_host_allowed("evilcgfixit.com"))
+        self.assertFalse(_host_allowed("notperplexity.ai"))
+        self.assertFalse(_host_allowed("example.com"))
