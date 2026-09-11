@@ -15,6 +15,7 @@ does not prove that Perplexity exposed every account content type. See README.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import math
@@ -142,6 +143,49 @@ def parse_thread_url(value):
     if not match:
         raise ExportError("Unsupported thread URL path. Use /search/<slug-or-uuid> or /computer/tasks/<uuid>.")
     return match.group(1)
+
+
+def decode_share_slug_uuid(selector):
+    """Decode a /search/<title-slug>-XXXX share selector's urlsafe-base64 UUID suffix.
+
+    Perplexity public share links encode the thread UUID in the final '-' segment.
+    Returns a canonical UUID string, or None when the selector is not a decodable slug.
+    """
+    if not isinstance(selector, str) or "-" not in selector:
+        return None
+    suffix = selector.rsplit("-", 1)[-1]
+    if not re.fullmatch(r"[A-Za-z0-9_-]{16,32}", suffix):
+        return None
+    padding = "=" * ((4 - len(suffix) % 4) % 4)
+    try:
+        raw = base64.urlsafe_b64decode(suffix + padding)
+    except Exception:
+        return None
+    if len(raw) != 16:
+        return None
+    try:
+        return str(UUID(bytes=raw))
+    except ValueError:
+        return None
+
+
+def resolve_share_thread_id(thread_url):
+    """Resolve an HTTPS Perplexity share/search URL to a thread UUID string.
+
+    Accepts bare UUID paths and title-slug paths whose final segment is the
+    urlsafe-base64 UUID encoding. Does not contact the network.
+    """
+    selector = parse_thread_url(thread_url)
+    try:
+        return str(UUID(selector))
+    except ValueError:
+        decoded = decode_share_slug_uuid(selector)
+        if decoded:
+            return decoded
+        raise ExportError(
+            "Shared-link slug could not be decoded to a UUID. Use a /search/<UUID> "
+            "URL, or a /search/<title>-XXXX share link whose suffix is the urlsafe-base64 UUID."
+        ) from None
 
 
 def select_threads(client, ids, urls, checkpoint):

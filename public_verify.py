@@ -10,13 +10,30 @@ import os
 import re
 import sys
 import tempfile
-from pathlib import Path
-from uuid import UUID
+from pathlib import Path, PurePosixPath
 
 import pplx_export as exporter
 
 
 MAX_NATIVE_EXPORT_BYTES = 64 * 1024 * 1024
+
+
+def native_filename_is_safe(filename):
+    """Return True when a native-export filename is safe to report (not used as a path).
+
+    Remote titles may contain "/" (e.g. "Trade War/Liberation Day….md"). Bytes are
+    written only to the caller-supplied --output path via atomic_bytes, so path
+    separators in the remote name are allowed. Path-escape components ("..") and
+    absolute roots are still rejected, as are control characters.
+    """
+    if not isinstance(filename, str) or not filename.lower().endswith(".md"):
+        return False
+    if any(character in filename for character in ("\0", "\r", "\n")):
+        return False
+    parts = PurePosixPath(filename.replace("\\", "/")).parts
+    if not parts or ".." in parts or parts[0] == "/":
+        return False
+    return True
 
 
 def fetch_native_markdown(client, uid):
@@ -29,8 +46,7 @@ def fetch_native_markdown(client, uid):
     filename = payload.get("filename")
     if not isinstance(encoded, str) or not encoded or len(encoded) > MAX_NATIVE_EXPORT_BYTES * 2:
         raise exporter.ExportError("Native export response contained missing or oversized file data.")
-    if (not isinstance(filename, str) or not filename.lower().endswith(".md") or
-            any(character in filename for character in ("/", "\\", "\0", "\r", "\n"))):
+    if not native_filename_is_safe(filename):
         raise exporter.ExportError("Native export response contained an unsafe Markdown filename.")
     try:
         data = base64.b64decode(encoded, validate=True)
@@ -118,9 +134,9 @@ def main(argv=None):
                         help="With --native-export, atomically save the exact Markdown bytes to this path.")
     args = parser.parse_args(argv)
     try:
-        uid = str(UUID(exporter.parse_thread_url(args.thread_url)))
-    except (exporter.ExportError, ValueError):
-        parser.error("Use an HTTPS Perplexity thread URL containing its UUID. Anonymous slug resolution is unsupported.")
+        uid = exporter.resolve_share_thread_id(args.thread_url)
+    except exporter.ExportError:
+        parser.error("Use an HTTPS Perplexity UUID URL or a /search/<title>-XXXX share link with a decodable UUID suffix.")
     if args.inspect and args.native_export:
         parser.error("Choose either --inspect or --native-export.")
     if args.native_export:
