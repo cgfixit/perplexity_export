@@ -163,10 +163,14 @@ session ([sharing documentation](https://www.perplexity.ai/help-center/en/articl
 | --- | --- | --- | --- |
 | `public_verify.py --native-export` | Perplexity **Markdown API** (`POST /rest/thread/export`) | Convenient; **can omit early turns** on long shares while keeping the opener title | Anonymous for many public UUIDs |
 | `public_verify.py --inspect` / structured detail | Unofficial REST detail pagination | Fail-closed on cursor loops; not a browser dump | Anonymous for some public UUIDs |
-| `dom_export.py` | **DOM virtual-scroll** of the share UI (Playwright) | Share-fidelity: ordered rendered turns, truncation banner, continuation links | Anonymous for public shares; **owner cookies / signed-in browser** for private shares |
+| `dom_export.py` | **DOM virtual-scroll** of the share UI (Playwright) | Ordered rendered turns plus verified answer-Copy payloads; explicit partial results on ambiguity, truncation, or Copy failure | Anonymous for public shares; dedicated local profile and manual owner sign-in for private shares |
 
-`--native-export` is **not** a browser-faithful transcript. Prefer `dom_export.py`
-when the question is “does this match what the shared session shows?”
+`--native-export` is **not** a browser-faithful transcript. Use `dom_export.py`
+only when UI comparison is necessary and you have independent authorization to
+automate the page. [Perplexity's current Terms](https://www.perplexity.ai/en-GB/hub/legal/terms-of-service)
+restrict automated extraction absent written permission or applicable law;
+slower requests do not create permission. Prefer Perplexity's manual Export or
+the native Markdown path when either meets the need.
 
 ### DOM share export (optional browser)
 
@@ -176,13 +180,33 @@ only when you need share-fidelity capture:
 ```powershell
 python -m pip install -r requirements-dom.txt
 playwright install chromium
-python dom_export.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" -o ".\share.md" --report ".\share.json"
+python dom_export.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" -o ".\dom-export\share.md" --report ".\dom-export\share.json"
 ```
 
-The JSON report includes `turns_seen`, `scroll_exhausted`, `ui_truncation_banner`,
-`continuation_urls`, and `access` (`public` | `private` | `denied`). Title-slug
-share URLs (`/search/<title>-XXXX`) decode to UUIDs via the urlsafe-base64 suffix
-(no network). Do not commit cookies or large transcripts.
+The collector starts at a verified top, advances one overlapping viewport at a
+time, and runs one browser action at a time. `--pace-ms` defaults to 1000 and is
+bounded to 750–10000 milliseconds. That is a conservative local throttle, not an
+official UI limit; published Perplexity API quotas do not govern browser pages or
+undocumented website endpoints. A page-observed HTTP 429 stops the run rather
+than adding automated retries.
+
+Answer Copy writes into page-local memory installed before navigation, not the
+operating-system clipboard. A private thread requires an explicit, dedicated
+profile; never point this at a personal browser profile:
+
+```powershell
+python dom_export.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" --headed --profile-dir ".\dom-export\profile" --login-wait-seconds 300 -o ".\dom-export\share.md" --report ".\dom-export\share.json"
+```
+
+The JSON report distinguishes `status`, `stop_reason`, `ui_capture`,
+`transcript_completeness`, and `account_completeness`. Exit 0 means the accessible
+UI was traversed from its first user turn to a settled bottom with every answer
+Copy verified; it does not prove the UI or account contained every historical
+turn. Private/denied access, zero or unfinished turns, ambiguity, rate limiting,
+Copy failure, a step/deadline cap, and the UI truncation banner exit 1. Partial
+data goes to `share.partial.md` / `share.partial.json`, preserving any prior final
+files. Title-slug share URLs decode to UUIDs offline. Keep profiles and exports
+under ignored `dom-export/`; never commit authentication state or transcripts.
 
 ### Native Markdown API canary
 

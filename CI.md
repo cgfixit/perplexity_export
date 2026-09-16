@@ -175,9 +175,20 @@ using that prompt as the remote filename/title. Native SHA canaries therefore
 prove API-byte stability, not start→finish UI parity. For share-fidelity capture,
 use optional `dom_export.py` (`pip install -r requirements-dom.txt` then
 `playwright install chromium`). Default CI does **not** install Playwright or
-browsers; DOM live checks are local-only. Public shares can be scrolled
-anonymously; private shares need owner cookies / a signed-in browser profile and
-must never place those cookies in Actions secrets.
+browsers; DOM live checks are local-only. An opt-in offline fixture exercises
+real virtual scrolling, scoped Copy controls, isolated clipboard payloads, and
+unmounted turns:
+
+```bash
+DOM_EXPORT_BROWSER_FIXTURE=1 python -m unittest -v tests.test_dom_export.DomBrowserFixtureTests
+```
+
+Public shares may be visible anonymously. A private capture requires a dedicated
+local `--profile-dir`, `--headed`, and manual owner sign-in; never reuse a personal
+profile or put browser state/cookies in Actions. Browser automation also requires
+independent permission under [Perplexity's Terms](https://www.perplexity.ai/en-GB/hub/legal/terms-of-service).
+The 750–10000 ms DOM pacing bound is a conservative local policy, not an official
+Perplexity UI quota and not authorization to scrape.
 
 Open Actions → Public thread verification → Run workflow and leave both fields
 blank to use the example URL and pinned digest. A custom URL needs only the full
