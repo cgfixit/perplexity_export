@@ -64,6 +64,42 @@ python -m pip install -r requirements.txt
 python pplx_export.py
 ```
 
+## Optional browser capture of one shared thread
+
+Use this only when Perplexity's native Markdown omits UI-visible turns and you
+have independent authorization to automate the page. Perplexity's current
+[Terms](https://www.perplexity.ai/en-GB/hub/legal/terms-of-service) restrict
+automated extraction absent written permission or applicable law. Pacing does
+not change that boundary.
+
+```bash
+python3 -m pip install -r requirements-dom.txt
+playwright install chromium
+python3 dom_export.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" \
+  -o dom-export/share.md --report dom-export/share.json
+```
+
+The browser collector is sequential and defaults to one action per second
+(`--pace-ms 1000`, allowed range 750–10000). This is a local conservative policy,
+not a Perplexity browser/API quota. Copy payloads stay in isolated page memory;
+the tool does not use your operating-system clipboard.
+
+For a private thread, use a new dedicated profile and sign in yourself in the
+headed window. Never reuse your normal browser profile or send cookies to CI:
+
+```bash
+python3 dom_export.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" \
+  --headed --profile-dir dom-export/profile --login-wait-seconds 300 \
+  -o dom-export/share.md --report dom-export/share.json
+```
+
+Exit 0 means only that the accessible UI reached a settled bottom from its first
+user turn with verified Copy payloads. The report still says
+`transcript_completeness: not_independently_verified` and
+`account_completeness: not_verified`. Any ambiguity, truncation, unfinished turn,
+Copy failure, access loss, rate limit, or safety cap exits 1 and writes
+`share.partial.md` / `share.partial.json` without replacing prior final files.
+
 ## Where the files go
 
 The default output is **`pplx_export` beside the script**, on the machine running
