@@ -106,18 +106,75 @@ def _content_tokens(value: str) -> list[str]:
     return re.findall(r"[^\W_]+", normalized)
 
 
+def _strip_markdown_destinations(value: str) -> str:
+    """Remove inline link destinations in one bounded scan."""
+    output = []
+    index = 0
+    bracket_depth = 0
+    scan_budget = len(value) * 2
+    while index < len(value):
+        if value[index] == "\\" and index + 1 < len(value):
+            output.append(value[index:index + 2])
+            index += 2
+            continue
+        if value[index] == "[":
+            bracket_depth += 1
+        is_label_close = value[index] == "]" and bracket_depth > 0
+        if is_label_close:
+            bracket_depth -= 1
+        if is_label_close and index + 1 < len(value) and value[index + 1] == "(":
+            cursor = index + 2
+            depth = 1
+            angle = False
+            quote = ""
+            first_content = cursor
+            while first_content < len(value) and value[first_content].isspace():
+                first_content += 1
+            while cursor < len(value) and depth:
+                if scan_budget <= 0:
+                    raise DomExportError("Markdown link validation exceeded its scan budget.")
+                if value[cursor] == "\\" and cursor + 1 < len(value):
+                    cursor += 2
+                    scan_budget -= 2
+                    continue
+                if angle:
+                    angle = value[cursor] != ">"
+                elif quote:
+                    if value[cursor] == quote:
+                        quote = ""
+                elif cursor == first_content and value[cursor] == "<":
+                    angle = True
+                elif value[cursor] in {'"', "'"} and value[cursor - 1].isspace():
+                    quote = value[cursor]
+                elif value[cursor] == "(":
+                    depth += 1
+                elif value[cursor] == ")":
+                    depth -= 1
+                cursor += 1
+                scan_budget -= 1
+            if depth == 0:
+                output.append("]")
+                index = cursor
+                continue
+            output.append("](")
+            index += 2
+            continue
+        output.append(value[index])
+        index += 1
+    return "".join(output)
+
+
 def _markdown_visible_tokens(value: str) -> list[str]:
     # Link destinations are metadata, not evidence that the visible answer text
     # was copied. Preserve labels and bare/autolink URLs that are themselves visible.
     value = re.sub(r"(?m)^\s*\[[^\]\n]+\]:\s*\S+.*$", "", value)
-    value = re.sub(r"(?<=\])\((?:\\.|[^()\n]|\([^()\n]*\))*\)", "", value)
     value = re.sub(r"(?<=\])\[[^\]\n]*\]", "", value)
-    return _content_tokens(value)
+    return _content_tokens(_strip_markdown_destinations(value))
 
 
 def _validate_markdown_payload(value: str, features: dict, dom_text: str = "") -> None:
     links = list(dict.fromkeys(features.get("links") or []))
-    if links and "](http" in value:
+    if links and ("](http" in value or "](<http" in value):
         missing = [url for url in links if url not in value and url.rstrip("/") not in value]
         if missing:
             raise DomExportError("Answer Copy omitted a rendered link target.")

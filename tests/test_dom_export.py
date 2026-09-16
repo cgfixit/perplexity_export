@@ -167,6 +167,29 @@ class NativeFilenameTests(unittest.TestCase):
 
 class DomHelperTests(unittest.TestCase):
     def test_markdown_copy_must_cover_visible_answer_content(self):
+        self.assertEqual(
+            dom_export._strip_markdown_destinations(
+                "[label](https://example.test/a_(b_(c))) tail",
+            ),
+            "[label] tail",
+        )
+        self.assertEqual(
+            dom_export._strip_markdown_destinations(
+                "[label](<https://example.test/a_(b>) tail",
+            ),
+            "[label] tail",
+        )
+        self.assertEqual(
+            dom_export._strip_markdown_destinations(
+                '[label](https://example.test "title )") tail',
+            ),
+            "[label] tail",
+        )
+        malformed = "[literal](" + "(" * 10_000
+        self.assertEqual(dom_export._strip_markdown_destinations(malformed), malformed)
+        with self.assertRaisesRegex(dom_export.DomExportError, "scan budget"):
+            dom_export._strip_markdown_destinations("[literal](" * 1_000)
+
         features = {"headings": 1}
         dom_text = "Full answer heading\ncritical tail"
         dom_export._validate_markdown_payload(
@@ -182,6 +205,17 @@ class DomHelperTests(unittest.TestCase):
                 {"headings": 1, "links": ["https://perplexity.ai/critical/tail"]},
                 "Report\ncritical tail\nsource",
             )
+        with self.assertRaisesRegex(dom_export.DomExportError, "omitted visible"):
+            dom_export._validate_markdown_payload(
+                "`[literal](` [source](https://perplexity.ai/critical/tail)",
+                {"links": ["https://perplexity.ai/critical/tail"]},
+                "literal source critical tail",
+            )
+        dom_export._validate_markdown_payload(
+            "[source](<https://perplexity.ai/reference>)",
+            {"links": ["https://perplexity.ai/reference"]},
+            "source",
+        )
 
     def test_markdown_includes_first_user_prompt_and_report_fields(self):
         turns = [
