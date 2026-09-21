@@ -1257,20 +1257,41 @@ def _collect(adapter, report: dict, *, pace_ms: int = 1000,
     return records, report
 
 
-def _wait_for_owner_access(page, expected_thread_id: str, seconds: int, pace_ms: int) -> bool:
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        try:
-            on_thread = (
-                urlsplit(page.url).hostname == "www.perplexity.ai"
-                and exporter.resolve_share_thread_id(page.url) == expected_thread_id
-            )
-        except (exporter.ExportError, ValueError):
-            on_thread = False
-        if on_thread and not PRIVATE_RE.search(clean_text(page.inner_text("body"))):
-            return True
-        page.wait_for_timeout(min(1000, pace_ms))
-    return False
+def _owner_readiness(snapshot: dict) -> str:
+    if snapshot.get("challenge"):
+        return "challenge"
+    if snapshot.get("access") in {"private", "denied"}:
+        return snapshot["access"]
+    return "ready" if snapshot.get("turns") else "loading"
+
+
+def _wait_for_owner_access(live_page, seconds: int, pace_ms: int,
+                           initial_state: str, navigation_guard,
+                           navigation_state: dict) -> str:
+    deadline = live_page.monotonic() + seconds
+    state = initial_state
+    owner_login = False
+    try:
+        while live_page.monotonic() < deadline:
+            try:
+                current = _owner_readiness(live_page.snapshot())
+            except DomExportError:
+                if not owner_login:
+                    raise
+                current = "loading"
+            if current == "ready":
+                return current
+            if current == "private" and not owner_login:
+                live_page.page.unroute("**/*", navigation_guard)
+                owner_login = True
+            if current != "loading":
+                state = current
+            live_page.throttle(min(1000, pace_ms))
+        return state
+    finally:
+        if owner_login:
+            navigation_state["blocked"] = False
+            live_page.page.route("**/*", navigation_guard)
 
 
 def export_share(thread_url: str, headless: bool = True, timeout_ms: int = 60000,
@@ -1346,22 +1367,31 @@ def export_share(thread_url: str, headless: bool = True, timeout_ms: int = 60000
             _dismiss_overlays(page, close_login=profile_dir is None, pace_ms=pace_ms)
             body = clean_text(page.inner_text("body"))
             report["title"] = clean_text(page.title()) or report["title"]
-            if PRIVATE_RE.search(body) and profile_dir is not None and login_wait_seconds:
-                page.unroute("**/*", navigation_guard)
-                owner_ready = _wait_for_owner_access(
-                    page, uid, login_wait_seconds, pace_ms,
+            initial_state = _owner_readiness(live_page.snapshot())
+            if (profile_dir is not None and login_wait_seconds
+                    and initial_state != "ready"):
+                owner_state = _wait_for_owner_access(
+                    live_page, login_wait_seconds, pace_ms, initial_state,
+                    navigation_guard, navigation_state,
                 )
-                if not owner_ready:
-                    report["access"] = "private"
-                    report["stop_reason"] = "needs_auth"
+                _validate_live_page_url(page.url, uid)
+                if owner_state != "ready":
+                    report["access"] = {
+                        "private": "private",
+                        "challenge": "unknown",
+                        "loading": "unknown",
+                    }.get(owner_state, "denied")
+                    report["stop_reason"] = {
+                        "private": "needs_auth",
+                        "challenge": "challenge",
+                        "loading": "incomplete",
+                    }.get(owner_state, "access_denied")
                     markdown = turns_to_markdown([], report)
                     if checkpoint:
                         checkpoint(markdown, dict(report))
                     return markdown, report
-                _validate_live_page_url(page.url, uid)
-                navigation_state["blocked"] = False
-                page.route("**/*", navigation_guard)
                 body = clean_text(page.inner_text("body"))
+                report["title"] = clean_text(page.title()) or report["title"]
             if PRIVATE_RE.search(body):
                 report["access"] = "private"
                 report["stop_reason"] = "needs_auth"

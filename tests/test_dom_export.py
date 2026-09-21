@@ -7,7 +7,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pplx_export as e
 import public_verify
@@ -832,6 +832,66 @@ class DomCollectorTests(unittest.TestCase):
             dom_export.export_share(
                 f"https://www.perplexity.ai/search/{PART1_UUID}", pace_ms=749,
             )
+
+    def test_owner_wait_handles_delayed_challenge_and_preserves_timeout_reason(self):
+        loading = {**dom_snapshot([]), "access": "unknown"}
+        challenge = {**dom_snapshot([]), "access": "unknown", "challenge": True}
+        denied = {**dom_snapshot([]), "access": "denied"}
+        ready = dom_snapshot([dom_turn("u1", "user", "owner thread", 0)])
+        page = TimedFakeDomPage([loading, challenge, ready])
+
+        self.assertEqual(dom_export._owner_readiness(loading), "loading")
+        self.assertEqual(dom_export._owner_readiness(challenge), "challenge")
+        self.assertEqual(dom_export._owner_readiness(denied), "denied")
+        self.assertEqual(
+            dom_export._wait_for_owner_access(
+                page, 3, 1000, "loading", object(), {"blocked": False},
+            ),
+            "ready",
+        )
+        self.assertEqual(
+            dom_export._wait_for_owner_access(
+                FakeDomPage([challenge]), 2, 1000, "challenge",
+                object(), {"blocked": False},
+            ),
+            "challenge",
+        )
+        self.assertEqual(
+            dom_export._wait_for_owner_access(
+                TimedFakeDomPage([denied, ready]), 2, 1000, "denied",
+                object(), {"blocked": False},
+            ),
+            "ready",
+        )
+
+    def test_owner_wait_rejects_challenge_drift_and_restores_private_login_guard(self):
+        class DriftPage(FakeDomPage):
+            def snapshot(self):
+                raise dom_export.DomExportError("left target thread")
+
+        drift = DriftPage([])
+        with self.assertRaisesRegex(dom_export.DomExportError, "left target thread"):
+            dom_export._wait_for_owner_access(
+                drift, 2, 1000, "challenge", object(), {"blocked": False},
+            )
+        self.assertEqual(drift.waits, [])
+
+        loading = {**dom_snapshot([]), "access": "unknown"}
+        private = {**dom_snapshot([]), "access": "private"}
+        owner = TimedFakeDomPage([
+            loading, private,
+            dom_snapshot([dom_turn("u1", "user", "owner thread", 0)]),
+        ])
+        owner.page = Mock()
+        guard = object()
+        state = {"blocked": True}
+        self.assertEqual(
+            dom_export._wait_for_owner_access(owner, 3, 1000, "loading", guard, state),
+            "ready",
+        )
+        owner.page.unroute.assert_called_once_with("**/*", guard)
+        owner.page.route.assert_called_once_with("**/*", guard)
+        self.assertFalse(state["blocked"])
 
 
 class DomOutputRecoveryTests(unittest.TestCase):
