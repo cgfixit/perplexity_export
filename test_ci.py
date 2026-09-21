@@ -133,6 +133,7 @@ class WorkflowTests(unittest.TestCase):
         # Dependency-review job is documented in CI.md for apply when workflow-scope
         # credentials are available; when present it must stay PR-only and SHA-pinned.
         sec = texts["security.yml"]
+        self.assertIn("python -m bandit -ll -r pplx_export.py live_verify.py public_verify.py dom_export.py scripts", sec)
         if "actions/dependency-review-action@" in sec:
             self.assertIn("if: github.event_name == 'pull_request'", sec)
             self.assertRegex(
