@@ -2,4 +2,4 @@
 # Default CI / unittest stays green without these packages.
 #   pip install -r requirements-dom.txt
 #   playwright install chromium
-playwright>=1.62.0,<2
+playwright>=1.63.0,<2
