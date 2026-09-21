@@ -8,7 +8,7 @@ Export accessible Perplexity conversations to **ordinary Markdown files on the
 computer running the script**. One file contains each conversation's returned
 prompt/response turns. No Obsidian, Notion, or API subscription is required.
 
-**Status:** [need to verify on computer] -Includes offline regression tests and cross-platform GitHub Actions. Authenticated live account export
+**Status:** Includes offline regression tests and cross-platform GitHub Actions. Authenticated live account export
 has not been verified end-to-end on large private accounts; larger threads (~100+ turns) previously hit the old
 hardcoded 60s HTTP timeout. Live requests now default to **120s** and accept `--timeout` (max 600). Perplexity's unofficial website endpoints can change or
 omit account content; a successful crawl is not proof of a complete account backup.
