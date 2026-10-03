@@ -62,8 +62,9 @@ jobs:
           python pplx_export.py --help
           python live_verify.py --help
           python public_verify.py --help
+          python dom_export.py --help
       - name: Check Python syntax
-        run: python -m compileall -q pplx_export.py live_verify.py public_verify.py scripts tests test_export.py test_ci.py test_resilience.py
+        run: python -m compileall -q pplx_export.py live_verify.py public_verify.py dom_export.py scripts tests test_export.py test_ci.py test_resilience.py
 
   package:
     name: Build verified source package

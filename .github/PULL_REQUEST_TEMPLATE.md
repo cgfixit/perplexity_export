@@ -13,7 +13,7 @@ Run the standard checks from [AGENTS.md](../AGENTS.md):
 
 ```powershell
 python -m unittest -v
-python -m compileall -q pplx_export.py live_verify.py public_verify.py scripts tests test_export.py test_ci.py test_resilience.py
+python -m compileall -q pplx_export.py live_verify.py public_verify.py dom_export.py scripts tests test_export.py test_ci.py test_resilience.py
 python -S -m unittest -v test_resilience tests.test_distribution
 python scripts/build_release.py
 python scripts/verify_release.py dist/perplexity_export.zip dist/SHA256SUMS.txt

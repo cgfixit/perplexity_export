@@ -4,12 +4,12 @@
 
 | Configuration | Trigger | Checks / output |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | Main pushes, PRs, manual, reusable call | Ubuntu, Windows, macOS × Python 3.10, 3.12, 3.13; regression tests; actual curl_cffi installation/client construction; syntax checks; verified source ZIP and checksum |
+| `.github/workflows/ci.yml` | Main pushes, PRs, manual, reusable call | Ubuntu, Windows, macOS × Python 3.10, 3.12, 3.13; regression tests; actual curl_cffi installation/client construction without a request; CLI help and syntax checks for all four entrypoints; verified source ZIP and checksum |
 | `.github/workflows/resilience.yml` | Main pushes, PRs, weekly, manual, reusable call | Recovery faults and shipped ZIP subprocesses without site-packages on Ubuntu, Windows, macOS × Python 3.12 and 3.13 |
 | `.github/workflows/security.yml` | Main pushes, PRs, weekly, manual, reusable call | Bandit medium/high findings and pip-audit advisories for resolved runtime and CI-tool dependencies |
 | `.github/workflows/release.yml` | A pushed `v*` tag | Requires CI, security, and resilience for that tag, then verifies and publishes the allowlisted source ZIP and checksum |
 | `.github/dependabot.yml` | Weekly | Proposed updates to pinned GitHub Actions and pip requirements |
-| `.github/workflows/public-thread.yml` | Weekly or manual | Real anonymous native Markdown export, exact-byte save/reopen, and optional complete-file digest on Python 3.12/3.13; no cookies or transcript artifacts |
+| `.github/workflows/public-thread.yml` | Weekly or manual | Real anonymous native Markdown export, exact-byte save/reopen, and pinned example digest or optional custom digest on Python 3.12/3.13; no cookies, transcript artifacts, or UI completeness claim |
 
 There is no server to deploy: continuous delivery means distributing a tested
 source ZIP. No PyPI publishing, deployment credentials, or Perplexity credentials
@@ -22,50 +22,28 @@ Normal checks use `contents: read`; only the gated release-publishing job receiv
 transcript artifacts. The package is assembled from an explicit source-file
 allowlist, not a recursive archive of the workspace.
 
-**Branch protection / rulesets are not configured on `main` yet.** Adding
-workflow files does not enable protection by itself. In GitHub Settings → Rules
-→ Rulesets, create a ruleset for `main` and require these check names (as shown
-in Actions / the merge box once the workflows have run): **CI**, **Security**,
-and **Resilience**. Optionally also require **Security / Dependency review** on
-PRs. Consider a separate ruleset limiting who may create release tags.
-
-
-### Pending: PR dependency review job
-
-`main` / this branch still need the following job appended to
-`.github/workflows/security.yml` (PR-only so `workflow_call` from `release.yml`
-is unchanged). Pin is `actions/dependency-review-action` **v5.0.0** at
-`a1d282b36b6f3519aa1f3fc636f609c47dddb294`. Top-level `permissions` stay
-`contents: read` only.
-
-```yaml
-  dependency-review:
-    name: Dependency review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
-```
-
-Apply via the GitHub web file editor on branch `grok/ci-actions-harden`, or after
-`gh auth refresh -h github.com -s workflow` (Contents API rejects workflow edits
-without that OAuth scope).
+To configure protection for `main`, inspect the repository's current rulesets
+and select the actual job contexts shown on a recent pull request. Workflow
+names alone do not identify every matrix or reusable-workflow check. Keep the
+optional public canary outside merge and release requirements. There is no
+dependency-review job in `security.yml`. Consider a separate ruleset limiting
+who may create release tags.
 
 ## What CI does and does not verify
 
 The suite verifies transcript parsing, pagination, errors, file preservation,
 URL validation, shared-slug resolution using simulated account metadata, and
 the smoke-test success/failure contract. Matrix installation checks exercise the
-real HTTP client's constructor without sending a Perplexity request.
+real HTTP client's constructor without sending a Perplexity request. CLI help
+and syntax checks include `dom_export.py` without installing optional browser
+dependencies. Synthetic DOM coverage checks that denied or empty captures,
+truncation, unresolved copy failures, and stop-limit exhaustion cannot report
+success or replace a prior complete export. Browser fixtures remain opt-in.
 
 **A green CI run is not an authenticated Perplexity integration test.** No live
 account or shared-link compatibility claim follows from mocked HTTP responses.
 Cloudflare, expired sessions, API changes, or missing history entries may prevent
-a real export. No signed-in live test was performed while preparing this change.
+a real export. Signed-in acceptance requires a separate owner-run local check.
 
 ## Safely test a real signed-in thread on your computer
 
@@ -161,13 +139,14 @@ oscillated between an identical 50-entry page and two opaque cursors while still
 claiming another page. The verifier correctly treats that as incomplete instead
 of guessing that 100 entries meant completion.
 
-Perplexity's native `/rest/thread/export` endpoint succeeds anonymously for that
-same shared UUID and returns one base64-encoded Markdown file. Two clean requests
-returned identical 1,090,044-byte files with SHA-256
-`c5e710abce41a79780e0d010e2123f5a55707121628f1667e99cb3497f89f78f`.
-The public workflow now uses this single complete-export operation instead of
-the broken detail cursor for its canary. This endpoint is still unofficial and
-may change.
+Perplexity's native `/rest/thread/export` endpoint returns a base64-encoded
+Markdown file anonymously for the example UUID. On October 3, 2026, two fresh
+CLI exports returned identical 1,114,230-byte files with SHA-256
+`1b64c438d3943f6fc129430a703b7b191e0db395900746c083af66b48f5b30f9`.
+The canary pins those returned bytes. A mismatch exits with code 1 before any
+output write and reports only the expected digest, actual digest, and byte count.
+Review a changed baseline locally before updating the pin. The endpoint is
+unofficial and may change, and a matching digest does not establish UI completeness.
 
 Treat `--native-export` as **Perplexity's MD API**, not a DOM dump. On some long
 shares the returned Markdown can omit the first visible user prompt while still
@@ -177,10 +156,11 @@ use optional `dom_export.py` (`pip install -r requirements-dom.txt` then
 `playwright install chromium`). Default CI does **not** install Playwright or
 browsers; DOM live checks are local-only. An opt-in offline fixture exercises
 real virtual scrolling, scoped Copy controls, isolated clipboard payloads, and
-unmounted turns:
+unmounted turns. A second fixture checks that the browser blocks disallowed document
+redirects before requesting their destinations:
 
 ```bash
-DOM_EXPORT_BROWSER_FIXTURE=1 python -m unittest -v tests.test_dom_export.DomBrowserFixtureTests
+DOM_EXPORT_BROWSER_FIXTURE=1 python -m unittest -v tests.test_dom_export.DomBrowserFixtureTests tests.test_dom_export.NativeNavigationBrowserTests
 ```
 
 Public shares may be visible anonymously. A private capture requires a dedicated
@@ -191,7 +171,8 @@ The 750–10000 ms DOM pacing bound is a conservative local policy, not an offic
 Perplexity UI quota and not authorization to scrape.
 
 Open Actions → Public thread verification → Run workflow and leave both fields
-blank to use the example URL and pinned digest. A custom URL needs only the full
+blank to use the example URL and pinned digest. Entering that exact example URL
+with a blank digest also applies the pin. A custom URL needs only the full
 public UUID URL; its SHA-256 field is optional. Inputs are passed through
 environment variables, not inserted into shell source. The Python 3.12/3.13
 jobs have ten-minute timeouts, no account credentials, and no transcript
