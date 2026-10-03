@@ -190,6 +190,21 @@ official UI limit; published Perplexity API quotas do not govern browser pages o
 undocumented website endpoints. A page-observed HTTP 429 stops the run rather
 than adding automated retries.
 
+For a long thread, `--settle-timeout-ms` also controls how long the bottom must
+remain unchanged before collection finishes. The default is 15000 milliseconds.
+New turns, layout changes, or loading indicators restart that quiet interval.
+For a page that loads follow-ups slowly, allow a longer observation window:
+
+```powershell
+python dom_export.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" --headed --settle-timeout-ms 30000 --max-steps 1200 -o ".\dom-export\share.md" --report ".\dom-export\share.json"
+```
+
+`--max-steps` counts waiting observations as well as scroll steps. Reaching it
+still produces a partial result. A longer wait can capture delayed turns, but
+cannot recover history that Perplexity never loads. Compare the first user turn,
+its attachments, and the final visible turns with the saved file. Export each
+continuation URL as a separate conversation.
+
 Answer Copy writes into page-local memory installed before navigation, not the
 operating-system clipboard. A private thread requires an explicit, dedicated
 profile; never point this at a personal browser profile:

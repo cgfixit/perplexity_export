@@ -420,7 +420,7 @@ class DomCollectorTests(unittest.TestCase):
         failed_page = FakeDomPage([snapshot], copies={"a1": "unused"}, failures={"a1"})
         _records, failed = dom_export._collect(
             failed_page, self.base_report(), pace_ms=1,
-            settle_timeout_ms=20, max_steps=10,
+            settle_timeout_ms=20, max_steps=40,
         )
         self.assertEqual(failed["status"], "partial")
         self.assertEqual(failed["stop_reason"], "copy_failed")
@@ -454,7 +454,7 @@ class DomCollectorTests(unittest.TestCase):
         page = TimedFakeDomPage(snapshots, copies={"a1": "## Final answer"})
         records, report = dom_export._collect(
             page, self.base_report(), pace_ms=1,
-            settle_timeout_ms=20, max_steps=20,
+            settle_timeout_ms=20, max_steps=40,
         )
         turns = dom_export._public_turns(records)
         self.assertEqual(report["status"], "complete", report)
@@ -515,7 +515,7 @@ class DomCollectorTests(unittest.TestCase):
         ]
         page = TimedFakeDomPage(snapshots, copies={"a1": "answer"})
         records, report = dom_export._collect(
-            page, self.base_report(), pace_ms=1, settle_timeout_ms=100, max_steps=20,
+            page, self.base_report(), pace_ms=1, settle_timeout_ms=100, max_steps=130,
         )
         self.assertEqual(report["status"], "complete", report)
         self.assertEqual(dom_export._public_turns(records)[0]["attachments"], ["image.jpg"])
@@ -534,7 +534,7 @@ class DomCollectorTests(unittest.TestCase):
         settled = dom_snapshot(turns, bottom=True)
         page = TimedFakeDomPage([initial, settled, settled], copies={"a1": "answer"})
         _records, report = dom_export._collect(
-            page, self.base_report(), pace_ms=1, settle_timeout_ms=100, max_steps=20,
+            page, self.base_report(), pace_ms=1, settle_timeout_ms=100, max_steps=130,
         )
         self.assertEqual(report["stop_reason"], "ui_truncated")
         self.assertEqual(
@@ -578,7 +578,7 @@ class DomCollectorTests(unittest.TestCase):
             [partial, partial, final, final], copies={"a1": ["partial", "final"]},
         )
         records, report = dom_export._collect(
-            page, self.base_report(), pace_ms=1, settle_timeout_ms=100, max_steps=30,
+            page, self.base_report(), pace_ms=1, settle_timeout_ms=100, max_steps=130,
         )
         self.assertEqual(report["status"], "complete", report)
         self.assertEqual(dom_export._public_turns(records)[1]["text"], "final")
@@ -641,7 +641,7 @@ class DomCollectorTests(unittest.TestCase):
             copies={"a1": ["answer", "[answer](https://example.test/)"]},
         )
         records, report = dom_export._collect(
-            page, self.base_report(), pace_ms=1, settle_timeout_ms=100, max_steps=20,
+            page, self.base_report(), pace_ms=1, settle_timeout_ms=100, max_steps=130,
         )
         self.assertEqual(report["status"], "complete", report)
         self.assertEqual(page.copy_calls, ["a1", "a1"])
@@ -765,6 +765,100 @@ class DomCollectorTests(unittest.TestCase):
         self.assertEqual(report["status"], "complete", report)
         self.assertEqual(dom_export._public_turns(records)[1]["text"], "final")
 
+    def test_delayed_tail_resets_full_bottom_quiet_interval(self):
+        first = dom_snapshot([
+            dom_turn("u1", "user", "first question", 0),
+            dom_turn("a1", "assistant", "first answer", 100, copy_ready=True),
+        ], bottom=True)
+        final = dom_snapshot(first["turns"] + [
+            dom_turn("u2", "user", "late question", 200),
+            dom_turn("a2", "assistant", "late answer", 300, copy_ready=True),
+        ], bottom=True)
+
+        class DelayedTailPage(FakeDomPage):
+            def snapshot(self):
+                return copy.deepcopy(final if self.clock >= 10 else first)
+
+        page = DelayedTailPage([first], copies={
+            "a1": "first answer", "a2": "late answer",
+        })
+        records, report = dom_export._collect(
+            page, self.base_report(), pace_ms=1000,
+            settle_timeout_ms=15000, max_steps=100,
+        )
+        self.assertEqual(report["status"], "complete", report)
+        self.assertEqual([turn["text"] for turn in dom_export._public_turns(records)], [
+            "first question", "first answer", "late question", "late answer",
+        ])
+        self.assertGreaterEqual(page.clock, 25)
+        self.assertEqual(page.copy_calls, ["a1", "a2"])
+
+    def test_bottom_quiet_restarts_after_layout_and_loading_changes(self):
+        settled = dom_snapshot([
+            dom_turn("u1", "user", "question", 0),
+            dom_turn("a1", "assistant", "answer", 100, copy_ready=True),
+        ], bottom=True)
+
+        class ChangingPage(FakeDomPage):
+            def snapshot(self):
+                snapshot = super().snapshot()
+                if self.clock >= 10:
+                    snapshot["metrics"]["height"] = 1100
+                snapshot["loading"] = 20 <= self.clock < 23
+                if snapshot["loading"]:
+                    snapshot["truncation"] = "Could not load the rest of the thread"
+                return snapshot
+
+        page = ChangingPage([settled], copies={"a1": "answer"})
+        records, report = dom_export._collect(
+            page, self.base_report(), pace_ms=1000,
+            settle_timeout_ms=15000, max_steps=100,
+        )
+        self.assertGreaterEqual(page.clock, 38)
+        self.assertEqual(len(records), 2)
+        self.assertTrue(report["scroll_exhausted"])
+        self.assertEqual(report["stop_reason"], "ui_truncated")
+        self.assertEqual(report["status"], "partial")
+
+    def test_persistent_loading_at_bottom_remains_partial(self):
+        settled = dom_snapshot([
+            dom_turn("u1", "user", "question", 0),
+            dom_turn("a1", "assistant", "answer", 100, copy_ready=True),
+        ], bottom=True)
+
+        class LoadingPage(FakeDomPage):
+            def snapshot(self):
+                snapshot = super().snapshot()
+                snapshot["loading"] = self.clock >= 10
+                return snapshot
+
+        page = LoadingPage([settled], copies={"a1": "answer"})
+        records, report = dom_export._collect(
+            page, self.base_report(), pace_ms=1000,
+            settle_timeout_ms=15000, max_steps=100,
+        )
+        self.assertEqual(len(records), 2)
+        self.assertEqual(report["status"], "partial")
+        self.assertEqual(report["stop_reason"], "settle_timeout")
+        self.assertFalse(report["scroll_exhausted"])
+
+    def test_bottom_quiet_observation_respects_step_limit(self):
+        settled = dom_snapshot([
+            dom_turn("u1", "user", "question", 0),
+            dom_turn("a1", "assistant", "answer", 100, copy_ready=True),
+        ], bottom=True)
+        for pace_ms, settle_timeout_ms, max_steps in [(1000, 15000, 10), (1, 100, 20)]:
+            with self.subTest(pace_ms=pace_ms):
+                page = FakeDomPage([settled], copies={"a1": "answer"})
+                records, report = dom_export._collect(
+                    page, self.base_report(), pace_ms=pace_ms,
+                    settle_timeout_ms=settle_timeout_ms, max_steps=max_steps,
+                )
+                self.assertEqual(len(records), 2)
+                self.assertEqual(report["status"], "partial")
+                self.assertEqual(report["stop_reason"], "step_limit")
+                self.assertFalse(report["scroll_exhausted"])
+
     def test_high_valid_pace_does_not_consume_the_settle_deadline(self):
         settled = dom_snapshot([
             dom_turn("u1", "user", "question", 0),
@@ -822,7 +916,7 @@ class DomCollectorTests(unittest.TestCase):
                 )
                 _records, report = dom_export._collect(
                     page, self.base_report(), pace_ms=1,
-                    settle_timeout_ms=100, max_steps=10,
+                    settle_timeout_ms=100, max_steps=130,
                 )
                 self.assertEqual(report["status"], "partial")
                 self.assertEqual(report["stop_reason"], reason)
@@ -996,8 +1090,69 @@ class DomOutputRecoveryTests(unittest.TestCase):
             export.assert_not_called()
 
 
+DELAYED_TAIL_FIXTURE = r"""
+    <style>
+      .scrollable-container { height: 500px; overflow-y: auto; }
+      .group\/user-bubble, .group\/final-text { min-height: 60px; }
+    </style>
+    <div class="scrollable-container">
+      <div class="group/user-bubble">first question</div>
+      <div class="group/final-text">
+        <div>first answer</div>
+        <div><button aria-label="Copy"
+          onclick="navigator.clipboard.writeText('first answer')">Copy</button></div>
+      </div>
+    </div>
+    <script>
+      window.fixtureStarted = performance.now();
+      setTimeout(() => {
+        document.querySelector('.scrollable-container').insertAdjacentHTML('beforeend', `
+          <div class="group/user-bubble">late question</div>
+          <div class="group/final-text">
+            <div>late answer</div>
+            <div><button aria-label="Copy"
+              onclick="navigator.clipboard.writeText('late answer')">Copy</button></div>
+          </div>`);
+        window.fixtureTailAppended = performance.now();
+      }, 10000);
+    </script>
+"""
+
+
 class DomBrowserFixtureTests(unittest.TestCase):
     """Optional real-browser test against an offline virtualized page."""
+
+    def test_delayed_tail_is_collected_after_initial_bottom(self):
+        if os.environ.get("DOM_EXPORT_BROWSER_FIXTURE") != "1":
+            self.skipTest("Set DOM_EXPORT_BROWSER_FIXTURE=1 to run the Playwright fixture")
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                context = browser.new_context(viewport={"width": 900, "height": 600})
+                context.add_init_script(script=dom_export.ISOLATED_CLIPBOARD_SCRIPT)
+                page = context.new_page()
+                page.set_content(DELAYED_TAIL_FIXTURE)
+                adapter = dom_export._LivePage(page)
+                initial = adapter.snapshot()
+                self.assertTrue(initial["at_bottom"])
+                self.assertFalse(initial["loading"])
+                self.assertEqual(len(initial["turns"]), 2)
+                records, report = dom_export._collect(
+                    adapter, self.base_report(), pace_ms=1000,
+                    settle_timeout_ms=15000, max_steps=100,
+                )
+                self.assertEqual(report["status"], "complete", report)
+                self.assertEqual(
+                    [turn["text"] for turn in dom_export._public_turns(records)],
+                    ["first question", "first answer", "late question", "late answer"],
+                )
+                self.assertGreaterEqual(page.evaluate(
+                    "() => performance.now() - window.fixtureTailAppended"
+                ), 15000)
+            finally:
+                browser.close()
 
     def test_virtualized_page_scrolls_and_copies_markdown(self):
         if os.environ.get("DOM_EXPORT_BROWSER_FIXTURE") != "1":
@@ -1165,7 +1320,7 @@ class DomBrowserFixtureTests(unittest.TestCase):
                     recycle_probe.copy_markdown(old_turn, 3000)
                 adapter = dom_export._LivePage(page)
                 records, report = dom_export._collect(
-                    adapter, self.base_report(), pace_ms=1,
+                    adapter, self.base_report(), pace_ms=250,
                     settle_timeout_ms=5000, max_steps=50,
                 )
                 short_page = context.new_page()
@@ -1181,8 +1336,8 @@ class DomBrowserFixtureTests(unittest.TestCase):
                     </div>
                 """)
                 short_records, short_report = dom_export._collect(
-                    dom_export._LivePage(short_page), self.base_report(), pace_ms=1,
-                    settle_timeout_ms=5000, max_steps=20,
+                    dom_export._LivePage(short_page), self.base_report(), pace_ms=250,
+                    settle_timeout_ms=5000, max_steps=40,
                 )
                 html_page = context.new_page()
                 html_page.set_content("""
@@ -1204,8 +1359,8 @@ class DomBrowserFixtureTests(unittest.TestCase):
                     </script>
                 """)
                 html_records, html_report = dom_export._collect(
-                    dom_export._LivePage(html_page), self.base_report(), pace_ms=1,
-                    settle_timeout_ms=5000, max_steps=20,
+                    dom_export._LivePage(html_page), self.base_report(), pace_ms=250,
+                    settle_timeout_ms=5000, max_steps=40,
                 )
                 truncated_copy_page = context.new_page()
                 truncated_copy_page.set_content("""
@@ -1220,8 +1375,8 @@ class DomBrowserFixtureTests(unittest.TestCase):
                     </div>
                 """)
                 truncated_records, truncated_report = dom_export._collect(
-                    dom_export._LivePage(truncated_copy_page), self.base_report(), pace_ms=1,
-                    settle_timeout_ms=5000, max_steps=20,
+                    dom_export._LivePage(truncated_copy_page), self.base_report(), pace_ms=250,
+                    settle_timeout_ms=5000, max_steps=40,
                 )
                 replacement_page = context.new_page()
                 replacement_page.set_content("""

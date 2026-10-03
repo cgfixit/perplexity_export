@@ -1077,10 +1077,7 @@ def _collect(adapter, report: dict, *, pace_ms: int = 1000,
         return records, report
     now = getattr(adapter, "monotonic", time.monotonic)
     last_fingerprint = None
-    quiet_dwell = (
-        min(settle_timeout_ms, max(5000, pace_ms * 3)) / 1000
-        if pace_ms >= 750 else max(2, pace_ms * 2) / 1000
-    )
+    quiet_dwell = settle_timeout_ms / 1000
     staged = {}
     settle_deadline = now() + settle_timeout_ms / 1000
     # Process an immediate observation before the first paced wait/click so
@@ -1474,7 +1471,7 @@ def main(argv=None) -> int:
     parser.add_argument("--pace-ms", type=_bounded_int("pace", 750, 10000), default=1000,
                         help="Minimum milliseconds between browser actions (local policy, not an official limit)")
     parser.add_argument("--settle-timeout-ms", type=_bounded_int("settle timeout", 1000, 120000),
-                        default=15000, help="Bound for rendered content to reach repeated stable snapshots")
+                        default=15000, help="Content settling deadline and required unchanged observation time at the bottom")
     parser.add_argument("--max-steps", type=_bounded_int("max steps", 1, 5000), default=600,
                         help="Maximum settled/scroll snapshots before an explicit partial result")
     parser.add_argument("--timeout-ms", type=_bounded_int("timeout", 1000, 600000), default=60000)
