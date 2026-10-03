@@ -208,6 +208,23 @@ data goes to `share.partial.md` / `share.partial.json`, preserving any prior fin
 files. Title-slug share URLs decode to UUIDs offline. Keep profiles and exports
 under ignored `dom-export/`; never commit authentication state or transcripts.
 
+If the DOM export produces partial files, inspect `stop_reason` in the JSON
+report before trying again:
+
+| Stop reason | Next step |
+| --- | --- |
+| `challenge` | Open a headed run with a dedicated profile and complete the browser verification manually. A working regular Chrome tab does not share its login with the exporter. |
+| `needs_auth` | Use the dedicated-profile command above and sign in as the thread owner. |
+| `settle_timeout` or `step_limit` | Check whether the browser is still loading. Increase the corresponding settling or step limit only if the page can load more content. |
+| `ui_truncated` | Perplexity reports that it cannot load the rest. Keep the partial files; retrying the native Markdown API does not prove that missing turns were recovered. |
+| `lost_overlap`, `ambiguous_overlap`, or `copy_failed` | Keep the partial report for diagnosis. The collector could not verify turn order or answer Copy fidelity. |
+
+The DOM browser refuses redirects and navigation to a different thread during
+capture. Its navigation uses Chromium directly; it does not fetch a replacement
+document through a separate HTTP client. Browser verification can still be
+required, and neither successful navigation nor the original page title proves
+that the first user turn was captured.
+
 ### Native Markdown API canary
 
 The **Public thread verification** Actions workflow runs a real, anonymous
