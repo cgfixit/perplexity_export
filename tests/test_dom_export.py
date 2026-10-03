@@ -20,6 +20,14 @@ PART2_SLUG = "global-fair-trade-4-merica-mem-uHgvJvtxQheh22IYWXy_lQ"
 PART2_UUID = "b8782f26-fb71-4217-a1db-6218597cbf95"
 
 
+def fake_cdp_page():
+    session = Mock()
+    session.send.return_value = {"frameTree": {"frame": {"id": "main"}}}
+    page = Mock()
+    page.context.new_cdp_session.return_value = session
+    return page, session
+
+
 def dom_turn(token, role, text, top, *, attachments=(), copy_ready=False,
              markdown_features=None):
     turn = {
@@ -269,57 +277,75 @@ class DomHelperTests(unittest.TestCase):
                 f"https://[www.perplexity.ai/search/{PART1_UUID}", PART1_UUID,
             )
 
-    def test_navigation_guard_refuses_redirects_and_foreign_targets(self):
-        class Page:
-            main_frame = object()
-
-            def route(self, _pattern, handler):
-                self.handler = handler
-
-        class Request:
-            def __init__(self, url, frame):
-                self.url = url
-                self.frame = frame
-
-            def is_navigation_request(self):
-                return True
-
-        class Route:
-            def __init__(self, status):
-                self.response = type("Response", (), {"status": status})()
-                self.actions = []
-
-            def fetch(self, **kwargs):
-                self.actions.append(("fetch", kwargs))
-                return self.response
-
-            def abort(self):
-                self.actions.append(("abort", None))
-
-            def fulfill(self, **kwargs):
-                self.actions.append(("fulfill", kwargs))
-
-            def continue_(self):
-                self.actions.append(("continue", None))
-
-        page = Page()
-        _handler, state = dom_export._install_navigation_guard(page, PART1_UUID)
+    def test_navigation_guard_uses_native_requests_and_refuses_redirect_responses(self):
         allowed = f"https://www.perplexity.ai/search/{PART1_UUID}"
+        for status in (200, 300, 301, 302, 303, 304, 307, 308, 399):
+            with self.subTest(status=status):
+                page, session = fake_cdp_page()
+                guard, state = dom_export._install_navigation_guard(page, PART1_UUID)
+                event = {"requestId": "request", "frameId": "main", "resourceType": "Document",
+                         "request": {"url": allowed}}
+                guard._paused(event)
+                self.assertEqual(session.send.call_args.args, (
+                    "Fetch.continueRequest", {"requestId": "request"},
+                ))
+                guard._paused({**event, "responseStatusCode": status})
+                self.assertEqual(session.send.call_args.args[0],
+                                 "Fetch.failRequest" if status >= 300 else "Fetch.continueResponse")
+                self.assertEqual(state["blocked"], status >= 300)
+                patterns = next(call.args[1]["patterns"] for call in session.send.call_args_list
+                                if call.args[0] == "Fetch.enable")
+                self.assertEqual({item["requestStage"] for item in patterns}, {"Request", "Response"})
 
-        redirect = Route(302)
-        page.handler(redirect, Request(allowed, page.main_frame))
-        self.assertEqual([action for action, _ in redirect.actions], ["fetch", "abort"])
+    def test_navigation_guard_blocks_foreign_requests_and_protocol_failure(self):
+        for event in (
+            {"requestId": "request", "frameId": "main", "resourceType": "Document",
+             "request": {"url": "https://evil.example/"}},
+            {"requestId": "request"},
+            {"requestId": "request", "frameId": "unfamiliar", "resourceType": "Document",
+             "request": {"url": f"https://www.perplexity.ai/search/{PART1_UUID}"}},
+        ):
+            page, session = fake_cdp_page()
+            guard, state = dom_export._install_navigation_guard(page, PART1_UUID)
+            guard._paused(event)
+            self.assertTrue(state["blocked"])
+            self.assertEqual(session.send.call_args.args[0], "Fetch.failRequest")
+        page, session = fake_cdp_page()
+        guard, state = dom_export._install_navigation_guard(page, PART1_UUID)
+        session.send.side_effect = RuntimeError("protocol unavailable")
+        guard._paused({"requestId": "request", "frameId": "main", "resourceType": "Document",
+                       "request": {"url": f"https://www.perplexity.ai/search/{PART1_UUID}"}})
         self.assertTrue(state["blocked"])
 
-        _handler, state = dom_export._install_navigation_guard(page, PART1_UUID)
-        success = Route(200)
-        page.handler(success, Request(allowed, page.main_frame))
-        self.assertEqual([action for action, _ in success.actions], ["fetch", "fulfill"])
+    def test_navigation_guard_keeps_subframes_and_owner_login_native(self):
+        page, session = fake_cdp_page()
+        guard, state = dom_export._install_navigation_guard(page, PART1_UUID)
+        foreign = {"requestId": "request", "frameId": "child", "resourceType": "Document",
+                   "request": {"url": "https://evil.example/"}, "responseStatusCode": 302}
+        guard._frame_attached({"frameId": "child", "parentFrameId": "main"})
+        guard._paused(foreign)
         self.assertFalse(state["blocked"])
+        guard.allow_owner_login()
+        guard._paused({**foreign, "frameId": "main"})
+        self.assertFalse(state["blocked"])
+        guard.require_thread()
+        guard._paused({**foreign, "frameId": "main"})
+        self.assertTrue(state["blocked"])
+        self.assertTrue(state["used_owner_login"])
+        self.assertFalse(state["owner_login"])
 
-        foreign = Route(200)
-        page.handler(foreign, Request("https://evil.example/", page.main_frame))
-        self.assertEqual([action for action, _ in foreign.actions], ["abort"])
+    def test_navigation_guard_tracks_root_and_session_close(self):
+        page, session = fake_cdp_page()
+        guard, state = dom_export._install_navigation_guard(page, PART1_UUID)
+        guard._frame_navigated({"frame": {"id": "child", "parentId": "main"}})
+        self.assertEqual(guard.main_frame_id, "main")
+        guard._frame_navigated({"frame": {"id": "new-root"}})
+        self.assertEqual(guard.main_frame_id, "main")
+        self.assertTrue(state["blocked"])
+        callbacks = {call.args[0]: call.args[1] for call in session.on.call_args_list}
+        callbacks["close"]()
+        self.assertTrue(state["blocked"])
+        guard.require_thread()
         self.assertTrue(state["blocked"])
 
     def test_dedicated_profile_requires_tool_marker(self):
@@ -977,15 +1003,171 @@ class DomCollectorTests(unittest.TestCase):
             dom_snapshot([dom_turn("u1", "user", "owner thread", 0)]),
         ])
         owner.page = Mock()
-        guard = object()
-        state = {"blocked": True}
+        guard = Mock()
+        state = {"blocked": False}
         self.assertEqual(
             dom_export._wait_for_owner_access(owner, 3, 1000, "loading", guard, state),
             "ready",
         )
-        owner.page.unroute.assert_called_once_with("**/*", guard)
-        owner.page.route.assert_called_once_with("**/*", guard)
+        guard.allow_owner_login.assert_called_once_with()
+        guard.require_thread.assert_called_once_with()
+        owner.page.unroute.assert_not_called()
+        owner.page.route.assert_not_called()
         self.assertFalse(state["blocked"])
+
+    def test_owner_wait_restores_strict_policy_on_timeout_and_exception(self):
+        private = {**dom_snapshot([]), "access": "private"}
+        for fail in (False, True):
+            with self.subTest(fail=fail):
+                owner = FakeDomPage([private])
+                if fail:
+                    owner.throttle = Mock(side_effect=RuntimeError("fixture failure"))
+                guard = Mock()
+                if fail:
+                    with self.assertRaisesRegex(RuntimeError, "fixture failure"):
+                        dom_export._wait_for_owner_access(owner, 1, 1000, "private", guard, {})
+                else:
+                    self.assertEqual(dom_export._wait_for_owner_access(
+                        owner, 1, 1000, "private", guard, {}), "private")
+                guard.allow_owner_login.assert_called_once_with()
+                guard.require_thread.assert_called_once_with()
+
+
+class NativeNavigationBrowserTests(unittest.TestCase):
+    def test_native_document_guard_blocks_redirects_before_destination_requests(self):
+        if os.environ.get("DOM_EXPORT_BROWSER_FIXTURE") != "1":
+            self.skipTest("Set DOM_EXPORT_BROWSER_FIXTURE=1 to run the Playwright fixture")
+        from collections import Counter
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from threading import Event, Thread
+        from playwright.sync_api import sync_playwright
+
+        hits = Counter()
+        behavior = {"status": 200, "target": "/allowed", "script": ""}
+        login_pending = Event()
+        release_login = Event()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                hits[self.path] += 1
+                if self.path == "/slow-login":
+                    login_pending.set()
+                    release_login.wait(5)
+                    self.send_response(302)
+                    self.send_header("Location", foreign)
+                    self.end_headers()
+                    return
+                status = behavior["status"] if self.path == "/allowed" else 200
+                self.send_response(status)
+                if 300 <= status < 400:
+                    self.send_header("Location", behavior["target"])
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(("<p>native document</p>" + behavior["script"]).encode())
+
+            def log_message(self, *_args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        worker = Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        origin = f"http://127.0.0.1:{server.server_port}"
+        foreign = f"http://localhost:{server.server_port}/foreign"
+
+        def local_validation(url, _thread_id):
+            if url != origin + "/allowed":
+                raise dom_export.DomExportError("Fixture URL outside allowed document")
+
+        try:
+            with sync_playwright() as playwright, patch.object(
+                    dom_export, "_validate_live_page_url", side_effect=local_validation):
+                browser = playwright.chromium.launch(headless=True)
+                try:
+                    for status in (200, 301, 302, 303, 307, 308):
+                        for target in (origin + "/allowed", foreign):
+                            with self.subTest(status=status, target=target):
+                                hits.clear()
+                                behavior.update(status=status, target=target, script="")
+                                context = browser.new_context(service_workers="block")
+                                try:
+                                    page = context.new_page()
+                                    guard, state = dom_export._install_navigation_guard(page, PART1_UUID)
+                                    stages = []
+                                    guard.session.on("Fetch.requestPaused", lambda event: stages.append(
+                                        "response" if "responseStatusCode" in event else "request"))
+                                    if status == 200:
+                                        page.goto(origin + "/allowed")
+                                        self.assertEqual(page.inner_text("p"), "native document")
+                                        page.evaluate("url => { const frame = document.createElement('iframe'); "
+                                                      "frame.src = url; document.body.append(frame); }", origin + "/child")
+                                        page.frame_locator("iframe").locator("p").wait_for()
+                                        self.assertFalse(state["blocked"])
+                                        self.assertEqual(hits["/child"], 1)
+                                        for child_origin in (origin.replace("127.0.0.1", "localhost"), origin):
+                                            page.frames[1].goto(child_origin + "/child")
+                                            page.frame_locator("iframe").locator("p").wait_for()
+                                            self.assertFalse(state["blocked"])
+                                        self.assertEqual(hits["/child"], 3)
+                                    else:
+                                        with self.assertRaises(Exception):
+                                            page.goto(origin + "/allowed")
+                                        self.assertTrue(state["blocked"])
+                                    self.assertIn("request", stages)
+                                    self.assertIn("response", stages)
+                                    self.assertEqual(hits["/allowed"], 1)
+                                    self.assertEqual(hits["/foreign"], 0)
+                                finally:
+                                    context.close()
+                    hits.clear()
+                    behavior.update(status=200, script=f"<script>location.href={json.dumps(foreign)}</script>")
+                    context = browser.new_context(service_workers="block")
+                    try:
+                        page = context.new_page()
+                        guard, state = dom_export._install_navigation_guard(page, PART1_UUID)
+                        try:
+                            page.goto(origin + "/allowed", wait_until="domcontentloaded")
+                        except Exception:
+                            pass
+                        page.wait_for_timeout(250)
+                        self.assertTrue(state["blocked"])
+                        self.assertEqual(hits["/foreign"], 0)
+                    finally:
+                        context.close()
+                    hits.clear()
+                    behavior.update(status=200, script="")
+                    context = browser.new_context(service_workers="block")
+                    try:
+                        login_page = context.new_page()
+                        login_guard, login_state = dom_export._install_navigation_guard(login_page, PART1_UUID)
+                        login_guard.allow_owner_login()
+                        login_page.goto(foreign)
+                        self.assertEqual(hits["/foreign"], 1)
+                        login_page.evaluate("url => { location.href = url; }", origin + "/slow-login")
+                        for _ in range(20):
+                            if login_pending.is_set():
+                                break
+                            login_page.wait_for_timeout(25)
+                        self.assertTrue(login_pending.is_set())
+                        login_guard.require_thread()
+                        capture_page = context.new_page()
+                        _capture_guard, capture_state = dom_export._install_navigation_guard(capture_page, PART1_UUID)
+                        login_page.close()
+                        release_login.set()
+                        capture_page.goto(origin + "/allowed")
+                        with self.assertRaises(Exception):
+                            capture_page.goto(foreign)
+                        self.assertTrue(capture_state["blocked"])
+                        self.assertEqual(hits["/foreign"], 1)
+                        self.assertFalse(login_state["owner_login"])
+                    finally:
+                        context.close()
+                finally:
+                    browser.close()
+        finally:
+            release_login.set()
+            server.shutdown()
+            server.server_close()
+            worker.join()
 
 
 class DomOutputRecoveryTests(unittest.TestCase):

@@ -229,28 +229,90 @@ def _prepare_profile_dir(profile_dir: Path) -> Path:
     return path
 
 
+class _NavigationGuard:
+    def __init__(self, page, expected_thread_id: str):
+        self.state = {"blocked": False, "owner_login": False, "used_owner_login": False}
+        self.expected_thread_id = expected_thread_id
+        try:
+            self.session = page.context.new_cdp_session(page)
+            tree = self.session.send("Page.getFrameTree")["frameTree"]
+            self.main_frame_id = tree["frame"]["id"]
+            self.child_frame_ids = set()
+            children = list(tree.get("childFrames", []))
+            while children:
+                child = children.pop()
+                self.child_frame_ids.add(child["frame"]["id"])
+                children.extend(child.get("childFrames", []))
+            self.session.on("Fetch.requestPaused", self._paused)
+            self.session.on("Page.frameNavigated", self._frame_navigated)
+            self.session.on("Page.frameAttached", self._frame_attached)
+            self.session.on("Page.frameDetached", self._frame_detached)
+            self.session.on("Inspector.detached", self._disconnected)
+            self.session.on("close", self._disconnected)
+            page.on("crash", self._disconnected)
+            self.session.send("Page.enable")
+            self.session.send("Fetch.enable", {"patterns": [
+                {"urlPattern": "*", "resourceType": "Document", "requestStage": stage}
+                for stage in ("Request", "Response")
+            ]})
+        except Exception as exc:
+            raise DomExportError("Browser-native navigation protection could not be installed.") from exc
+
+    def _frame_attached(self, event):
+        if event.get("parentFrameId") in self.child_frame_ids | {self.main_frame_id}:
+            self.child_frame_ids.add(event["frameId"])
+        else:
+            self._disconnected()
+
+    def _frame_detached(self, event):
+        self.child_frame_ids.discard(event.get("frameId"))
+
+    def _frame_navigated(self, event):
+        frame = event.get("frame", {})
+        if not frame.get("parentId") and frame.get("id") != self.main_frame_id:
+            self._disconnected()
+
+    def _disconnected(self, *_args):
+        self.state["blocked"] = True
+
+    def allow_owner_login(self):
+        self.state["owner_login"] = True
+        self.state["used_owner_login"] = True
+
+    def require_thread(self):
+        self.state["owner_login"] = False
+
+    def _paused(self, event):
+        request_id = event.get("requestId")
+        try:
+            if not request_id or not event.get("frameId") or event.get("resourceType") != "Document":
+                raise DomExportError("Malformed document navigation event.")
+            if event["frameId"] != self.main_frame_id and event["frameId"] not in self.child_frame_ids:
+                raise DomExportError("Unknown document frame.")
+            response = "responseStatusCode" in event or "responseErrorReason" in event
+            if event["frameId"] == self.main_frame_id and not self.state["owner_login"]:
+                _validate_live_page_url(event["request"]["url"], self.expected_thread_id)
+                if (self.state["blocked"] or "responseErrorReason" in event
+                        or (response and 300 <= event.get("responseStatusCode", 0) < 400)):
+                    raise DomExportError("Document navigation was blocked.")
+            self.session.send(
+                "Fetch.continueResponse" if response else "Fetch.continueRequest",
+                {"requestId": request_id},
+            )
+        except Exception:
+            self.state["blocked"] = True
+            if request_id:
+                try:
+                    self.session.send("Fetch.failRequest", {
+                        "requestId": request_id, "errorReason": "BlockedByClient",
+                    })
+                except Exception:
+                    pass
+
+
 def _install_navigation_guard(page, expected_thread_id: str):
-    state = {"blocked": False}
-
-    def guard(route, request):
-        if request.is_navigation_request() and request.frame == page.main_frame:
-            try:
-                _validate_live_page_url(request.url, expected_thread_id)
-            except DomExportError:
-                state["blocked"] = True
-                route.abort()
-                return
-            response = route.fetch(max_redirects=0)
-            if 300 <= response.status < 400:
-                state["blocked"] = True
-                route.abort()
-                return
-            route.fulfill(response=response)
-            return
-        route.continue_()
-
-    page.route("**/*", guard)
-    return guard, state
+    guard = _NavigationGuard(page, expected_thread_id)
+    return guard, guard.state
 
 
 def turns_to_markdown(turns, report) -> str:
@@ -1279,7 +1341,7 @@ def _wait_for_owner_access(live_page, seconds: int, pace_ms: int,
             if current == "ready":
                 return current
             if current == "private" and not owner_login:
-                live_page.page.unroute("**/*", navigation_guard)
+                navigation_guard.allow_owner_login()
                 owner_login = True
             if current != "loading":
                 state = current
@@ -1287,8 +1349,7 @@ def _wait_for_owner_access(live_page, seconds: int, pace_ms: int,
         return state
     finally:
         if owner_login:
-            navigation_state["blocked"] = False
-            live_page.page.route("**/*", navigation_guard)
+            navigation_guard.require_thread()
 
 
 def export_share(thread_url: str, headless: bool = True, timeout_ms: int = 60000,
@@ -1355,6 +1416,8 @@ def export_share(thread_url: str, headless: bool = True, timeout_ms: int = 60000
                 if navigation_state["blocked"]:
                     raise DomExportError("Blocked navigation away from the validated thread URL.") from exc
                 raise
+            if navigation_state["blocked"]:
+                raise DomExportError("Browser-native navigation protection failed.")
             _validate_live_page_url(page.url, uid)
             page.wait_for_function(
                 "() => document.body && document.body.innerText.length > 0",
@@ -1387,6 +1450,23 @@ def export_share(thread_url: str, headless: bool = True, timeout_ms: int = 60000
                     if checkpoint:
                         checkpoint(markdown, dict(report))
                     return markdown, report
+                if navigation_state["used_owner_login"]:
+                    # A login response already released under the relaxed policy can still redirect.
+                    # Capture only on a new page whose first request is strictly guarded.
+                    login_page = page
+                    page = context.new_page()
+                    navigation_guard, navigation_state = _install_navigation_guard(page, uid)
+                    live_page = _LivePage(page, expected_thread_id=uid, navigation_state=navigation_state)
+                    login_page.close()
+                    page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                    if navigation_state["blocked"]:
+                        raise DomExportError("Browser-native navigation protection failed.")
+                    _validate_live_page_url(page.url, uid)
+                    page.wait_for_function(
+                        "() => document.body && document.body.innerText.length > 0",
+                        timeout=timeout_ms,
+                    )
+                    _dismiss_overlays(page, close_login=False, pace_ms=pace_ms)
                 body = clean_text(page.inner_text("body"))
                 report["title"] = clean_text(page.title()) or report["title"]
             if PRIVATE_RE.search(body):
