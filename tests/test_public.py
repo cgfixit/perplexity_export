@@ -116,10 +116,30 @@ class PublicTests(unittest.TestCase):
             self.assertIn("saved atomically and reopened", output)
             self.assertEqual(list(output_path.parent.glob("*.tmp")), [])
 
-    def test_native_export_rejects_digest_mismatch_and_malformed_payloads(self):
-        status, output = self.invoke_native(self.native_payload(), "--expected-sha256", "0" * 64)
-        self.assertEqual(status, 1)
+    def test_native_export_digest_mismatch_preserves_output_and_reports_only_metadata(self):
+        data = b"# Private fixture title\n\nSynthetic body sentinel.\n"
+        expected = "0" * 64
+        actual = hashlib.sha256(data).hexdigest()
+        payload = self.native_payload(data)
+        payload["filename"] = "private-fixture-title.md"
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "private-output.md"
+            output_path.write_bytes(b"previous export")
+            status, output = self.invoke_native(payload, "--expected-sha256", expected,
+                                                "--output", str(output_path))
+            self.assertEqual(status, 1)
+            self.assertEqual(output_path.read_bytes(), b"previous export")
+            self.assertEqual(list(output_path.parent.iterdir()), [output_path])
         self.assertIn("did not match", output)
+        self.assertIn(f"{len(data)} bytes", output)
+        self.assertIn(f"expected SHA-256 {expected}", output)
+        self.assertIn(f"actual SHA-256 {actual}", output)
+        for sensitive in ("Private fixture title", "Synthetic body sentinel", payload["filename"],
+                          str(output_path), URL, UID):
+            self.assertNotIn(sensitive, output)
+        self.assertNotIn("PASS:", output)
+
+    def test_native_export_rejects_malformed_payloads(self):
         cases = (
             {},
             {"filename": "thread.md", "file_content_64": "not base64!"},

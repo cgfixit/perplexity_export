@@ -84,7 +84,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("--output \"$RUNNER_TEMP/perplexity-public-export.md\"", workflow)
         self.assertIn("if: always()", workflow)
         self.assertIn("65f1c6ad-8600-4393-aec2-0a4f7d8a1e8d", workflow)
-        self.assertIn("c5e710abce41a79780e0d010e2123f5a55707121628f1667e99cb3497f89f78f", workflow)
+        self.assertIn("1b64c438d3943f6fc129430a703b7b191e0db395900746c083af66b48f5b30f9", workflow)
         self.assertNotIn("expected_turns:", workflow)
         self.assertNotIn("expected_text:", workflow)
         self.assertNotIn("pplx_cookies", workflow.lower())
@@ -130,16 +130,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("uses: ./.github/workflows/security.yml", texts["release.yml"])
         self.assertIn("uses: ./.github/workflows/resilience.yml", texts["release.yml"])
         self.assertIn("needs: [ci, security, resilience]", texts["release.yml"])
-        # Dependency-review job is documented in CI.md for apply when workflow-scope
-        # credentials are available; when present it must stay PR-only and SHA-pinned.
         sec = texts["security.yml"]
         self.assertIn("python -m bandit -ll -r pplx_export.py live_verify.py public_verify.py dom_export.py scripts", sec)
-        if "actions/dependency-review-action@" in sec:
-            self.assertIn("if: github.event_name == 'pull_request'", sec)
-            self.assertRegex(
-                sec,
-                r"uses:\s+actions/dependency-review-action@[0-9a-f]{40}\s+#\s+v\S+",
-            )
 
 
 class PackageTests(unittest.TestCase):

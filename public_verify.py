@@ -37,7 +37,7 @@ def native_filename_is_safe(filename):
 
 
 def fetch_native_markdown(client, uid):
-    """Request and validate Perplexity's own complete Markdown export response."""
+    """Validate Perplexity's returned Markdown bytes; UI completeness is unverified."""
     payload = client.request("POST", exporter.api_path("export"),
                              {"thread_uuid": uid, "format": "md"})
     if not isinstance(payload, dict):
@@ -126,10 +126,10 @@ def main(argv=None):
     parser.add_argument("--expected-turns", type=int)
     parser.add_argument("--expect-text")
     parser.add_argument("--expected-sha256",
-                        help="Expected canonical-entry digest, or complete Markdown digest with --native-export.")
+                        help="Expected canonical-entry digest, or exact returned-byte digest with --native-export.")
     parser.add_argument("--inspect", action="store_true", help="Report structural counts and digest; does not independently verify content.")
     parser.add_argument("--native-export", action="store_true",
-                        help="Verify Perplexity's native complete Markdown export endpoint.")
+                        help="Verify native Markdown bytes from Perplexity; UI completeness is unverified.")
     parser.add_argument("--output", type=Path,
                         help="With --native-export, atomically save the exact Markdown bytes to this path.")
     args = parser.parse_args(argv)
@@ -159,7 +159,9 @@ def main(argv=None):
                 markdown_bytes = fetch_native_markdown(client, uid)
                 content_sha256 = hashlib.sha256(markdown_bytes).hexdigest()
                 if args.expected_sha256 is not None and content_sha256 != args.expected_sha256:
-                    print("FAIL: native Markdown export did not match the supplied complete-file SHA-256.")
+                    print(f"FAIL: native Markdown export did not match the supplied SHA-256 "
+                          f"({len(markdown_bytes)} bytes; expected SHA-256 {args.expected_sha256}; "
+                          f"actual SHA-256 {content_sha256}).")
                     return 1
                 if args.output is not None:
                     atomic_bytes(args.output, markdown_bytes)
