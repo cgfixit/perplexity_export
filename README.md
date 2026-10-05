@@ -208,8 +208,8 @@ they always target the interpreter you are running, and avoid
 PATH. `requirements-dom.txt` is independent of `requirements.txt`; install both if
 you also want the account exporter in the same environment. Re-run
 `python -m playwright install chromium` after upgrading the `playwright` package,
-because each release pins its own Chromium build (symptom: *Executable doesn't exist*,
-reported by the tool only as "browser, challenge, or UI change").
+because each release pins its own Chromium build. A missing browser now fails
+with `Chromium for this Playwright version is not installed` and the command to run.
 
 ```bash
 python dom_export.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" \
