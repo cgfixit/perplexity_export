@@ -190,6 +190,32 @@ restrict automated extraction absent written permission or applicable law;
 slower requests do not create permission. Prefer Perplexity's manual Export or
 the native Markdown path when either meets the need.
 
+### Example: anonymous export of a shared link (no login)
+
+The short link <https://cgfixit.com/ai> redirects to this public Perplexity
+thread, which is also the repository's pinned example:
+
+```text
+https://www.perplexity.ai/search/65f1c6ad-8600-4393-aec2-0a4f7d8a1e8d
+```
+
+`public_verify.py` accepts only the resolved `perplexity.ai` URL (or its UUID),
+not the short link, and it never reads `pplx_cookies.txt`. With the venv from
+[Install](#install-and-first-run) active:
+
+```bash
+python public_verify.py \
+  --thread-url "https://www.perplexity.ai/search/65f1c6ad-8600-4393-aec2-0a4f7d8a1e8d" \
+  --native-export --output ./example-thread.md
+```
+
+This saves Perplexity's native Markdown for that thread to `example-thread.md`
+without signing in. It is the API's Markdown, not a browser-faithful capture (see
+[Paths compared](#paths-compared)). To see the same short link's redirect yourself:
+`curl -sI https://cgfixit.com/ai | grep -i '^location'`. The command above was
+exercised only against its argument handling in this change; the live download
+depends on Perplexity being reachable from your network.
+
 ### DOM share export (optional browser)
 
 Default CI and `python -m unittest` stay green **without** Playwright. Install
