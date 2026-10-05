@@ -6,9 +6,10 @@ conversation pane, and extracts ordered user/assistant turns as rendered. It is
 separate from public_verify.py --native-export (Perplexity's /rest/thread/export
 Markdown API), which can omit early turns on long shares.
 
-Install (optional; not required for default unit tests / CI without browsers):
-    pip install -r requirements-dom.txt
-    playwright install chromium
+Install (optional; not required for default unit tests / CI without browsers).
+Run these inside your activated virtual environment:
+    python -m pip install -r requirements-dom.txt
+    python -m playwright install chromium
 
 Example:
     python dom_export.py --thread-url URL -o out.md --report out.json
@@ -365,9 +366,25 @@ def _require_playwright():
     except ImportError as exc:
         raise DomExportError(
             "Playwright is not installed. Install the optional DOM extra with "
-            "`pip install -r requirements-dom.txt` then `playwright install chromium`."
+            "`python -m pip install -r requirements-dom.txt` then "
+            "`python -m playwright install chromium`."
         ) from exc
     return sync_playwright
+
+
+def _launch_browser(launch, *args, **kwargs):
+    """Call a Playwright launch function; explain a missing Chromium download."""
+    try:
+        return launch(*args, **kwargs)
+    except Exception as exc:
+        text = str(exc)
+        if "Executable doesn't exist" in text or "playwright install" in text:
+            raise DomExportError(
+                "Chromium for this Playwright version is not installed. Run "
+                "`python -m playwright install chromium` in the same environment "
+                "(re-run it after upgrading the playwright package)."
+            ) from exc
+        raise
 
 
 def _dismiss_overlays(page, close_login: bool = True, pace_ms: int = 1000) -> None:
@@ -1393,13 +1410,14 @@ def export_share(thread_url: str, headless: bool = True, timeout_ms: int = 60000
         context = None
         try:
             if profile_dir is not None:
-                context = playwright.chromium.launch_persistent_context(
+                context = _launch_browser(
+                    playwright.chromium.launch_persistent_context,
                     str(profile_dir), headless=False,
                     viewport={"width": 1400, "height": 900}, locale="en-US",
                     service_workers="block",
                 )
             else:
-                browser = playwright.chromium.launch(headless=headless)
+                browser = _launch_browser(playwright.chromium.launch, headless=headless)
                 context = browser.new_context(
                     viewport={"width": 1400, "height": 900}, locale="en-US",
                     service_workers="block",
@@ -1539,7 +1557,8 @@ def _atomic_final_files(files: list[tuple[Path, str]]) -> None:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--thread-url", required=True, help="HTTPS Perplexity UUID or slug share URL")
     parser.add_argument("-o", "--output", type=Path, help="Write Markdown transcript here")
     parser.add_argument("--report", type=Path, help="Write JSON completeness report here")
