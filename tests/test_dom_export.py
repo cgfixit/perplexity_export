@@ -1634,6 +1634,29 @@ class DomBrowserFixtureTests(unittest.TestCase):
         return DomCollectorTests().base_report()
 
 
+class DomLaunchErrorTests(unittest.TestCase):
+    def test_missing_chromium_gets_install_instruction(self):
+        def launch(**_kwargs):
+            raise RuntimeError("BrowserType.launch: Executable doesn't exist at /x/chrome")
+        with self.assertRaises(dom_export.DomExportError) as caught:
+            dom_export._launch_browser(launch, headless=True)
+        self.assertIn("python -m playwright install chromium", str(caught.exception))
+        self.assertNotIn("/x/chrome", str(caught.exception))
+
+    def test_other_launch_errors_are_not_relabeled(self):
+        def launch(**_kwargs):
+            raise RuntimeError("sandbox failure")
+        with self.assertRaises(RuntimeError):
+            dom_export._launch_browser(launch, headless=True)
+
+    def test_help_keeps_install_commands_on_separate_lines(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+            dom_export.main(["--help"])
+        self.assertIn("    python -m pip install -r requirements-dom.txt\n", out.getvalue())
+        self.assertIn("    python -m playwright install chromium\n", out.getvalue())
+
+
 class DomLiveTests(unittest.TestCase):
     """Optional live smoke; skipped unless DOM_EXPORT_LIVE=1 and Playwright works."""
 
