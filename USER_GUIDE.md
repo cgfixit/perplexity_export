@@ -73,8 +73,9 @@ automated extraction absent written permission or applicable law. Pacing does
 not change that boundary.
 
 ```bash
-python3 -m pip install -r requirements-dom.txt
-playwright install chromium
+# with the virtual environment activated:
+python -m pip install -r requirements-dom.txt
+python -m playwright install chromium
 python3 dom_export.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" \
   -o dom-export/share.md --report dom-export/share.json
 ```
