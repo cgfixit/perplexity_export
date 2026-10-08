@@ -1,118 +1,171 @@
 # Perplexity Export — Detailed User Guide
 
-For the new `--thread-url` option, signed-in smoke checks, and GitHub Actions,
-see [CI and live verification](CI.md). The verifier runs locally, never with
-account cookies in GitHub Actions. Being signed in in your browser alone does
-not transfer that login to Python; use your own cookie file as explained below.
+This local utility has three live paths: `pplx_export.py` for your own account
+history, `public_verify.py` for an anonymous public share's native Markdown or
+REST inspection, and `dom_export.py` for browser capture of a shared thread.
+Only live `pplx_export.py` reads `pplx_cookies.txt`. Export files stay on the
+computer running the scripts; never commit credentials or conversation files.
+See [CI and live verification](CI.md) for what hosted checks do and do not prove.
 
-Run this script on your own computer. It writes **one ordinary `.md` file per
-conversation**, containing the prompt/response turns returned by Perplexity.
-Open them in any text editor or Markdown viewer. No Obsidian, Notion, paid API
-key, or other destination account is needed.
+The account exporter writes one Markdown file per returned conversation and
+retains raw JSON for later rebuilding. It can include source URLs, code, and
+attachment references, but it does not download attachment binaries, recover
+deleted chats, or establish account-wide completeness. Native Markdown from a
+public share can omit UI-visible turns on long threads. DOM capture may also
+end with a partial result; check its report and compare with the visible UI.
 
-The script includes source URLs, code, attachment references, and any plan or
-reasoning blocks the website receives. Unknown response blocks are preserved as
-JSON in the transcript and flagged for review. It does not download attachment
-binaries, extract hidden model reasoning, or recover deleted/expired chats.
+## Step 1: create a virtual environment
 
-## Start on Windows
+Use **Python 3.10 or newer**; CI tests 3.10, 3.12, and 3.13. Start in the cloned
+repository or extracted source ZIP folder, where the scripts and requirements
+files are present. Check your Python version before creating the environment.
+Do not install into a system Python: PEP 668 environments reject global pip
+installs with `externally-managed-environment`.
 
-1. Install Python 3.10 or newer if needed. Extract the ZIP into a folder you own,
-   such as `Documents\perplexity_export`. Open PowerShell in that folder.
-2. Install the sole live-export dependency:
-
-   ```powershell
-   py -m pip install -r requirements.txt
-   ```
-
-3. Log in to your own account at https://www.perplexity.ai in Chrome or Edge.
-   Open DevTools (F12) → Network. Reload the page and open the request to
-   `www.perplexity.ai`, or the `list_ask_threads` request when you open history.
-   Under Request Headers, copy the **complete value** of `Cookie`.
-4. Save that value on one line in **`pplx_cookies.txt` beside `pplx_export.py`**.
-   Make sure your editor has not added a second `.txt` extension. This file is a
-   login credential: keep it private and do not attach it to a chat or commit it.
-5. Optional five-conversation smoke test:
-
-   ```powershell
-   py .\pplx_export.py --limit 5
-   ```
-
-6. Export all conversations discovered through the website's thread endpoints:
-
-   ```powershell
-   py .\pplx_export.py
-   ```
-
-If `py` is unavailable but `python` works, substitute `python` in those commands.
-
-## Start on Mac or Linux
-
-Use the same cookie setup, then run these commands in the extracted folder:
+**macOS/Linux (bash or zsh):**
 
 ```bash
-python3 -m pip install -r requirements.txt
-python3 pplx_export.py
-```
-
-If your Python installation requires a virtual environment:
-
-```bash
+python3 --version
 python3 -m venv .venv
 source .venv/bin/activate
+```
+
+If `python3` is older than 3.10, install a supported Python and use its command
+to create the venv. **Windows PowerShell** (3.12 is a supported example):
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Activate `.venv` again in each new terminal. If PowerShell blocks activation,
+use `.\.venv\Scripts\python.exe` instead of `python` in every command below.
+The Linux/macOS equivalent is `.venv/bin/python`. All install commands use
+`python -m pip install -r <file>`: `-r` tells pip to read the file.
+
+| Requirements file | What it installs | Who needs it |
+| --- | --- | --- |
+| `requirements.txt` | `curl_cffi` | Live `pplx_export.py` and live anonymous `public_verify.py` |
+| `requirements-dom.txt` | `playwright` | `dom_export.py`; install Chromium separately |
+| `requirements-ci.txt` | `bandit`, `pip-audit` | Contributors and CI only |
+| None | Standard library only | `pplx_export.py --from-raw` |
+
+## Step 2A: export your own account history
+
+With the venv active, install the REST dependency:
+
+```bash
 python -m pip install -r requirements.txt
+```
+
+Sign in to your own account at <https://www.perplexity.ai> in Chrome or Edge.
+Open DevTools → Network, reload the site, and open a signed-in request to
+`www.perplexity.ai` (for example `list_ask_threads` in history). Copy the
+**Cookie request-header value**, not the `Set-Cookie` response header or an
+entire request. Put that value on **one line** in `pplx_cookies.txt` beside
+`pplx_export.py`. On Windows, check that the file is not accidentally named
+`pplx_cookies.txt.txt`. Never commit, upload, or share this credential; on
+macOS/Linux, run `chmod 600 pplx_cookies.txt` to limit local access.
+
+```bash
+python pplx_export.py --limit 5
 python pplx_export.py
 ```
 
-## Optional browser capture of one shared thread
+The first command samples five conversations; the second exports all discovered
+history. The default output is `pplx_export/` beside the script. To select one
+known UUID, use `python pplx_export.py --thread-id YOUR_THREAD_UUID`. To use a
+different cookie-file path, use `-c`, but keep that path outside version control.
+Being signed in to a normal browser tab does not transfer its login to this
+script. `pplx_export.py` needs the separate one-line cookie file for live runs.
 
-Use this only when Perplexity's native Markdown omits UI-visible turns and you
-have independent authorization to automate the page. Perplexity's current
-[Terms](https://www.perplexity.ai/en-GB/hub/legal/terms-of-service) restrict
-automated extraction absent written permission or applicable law. Pacing does
-not change that boundary.
+## Step 2B: export or inspect a public share without cookies
+
+`public_verify.py` uses the same `curl_cffi` dependency but creates an anonymous
+client. It never reads `pplx_cookies.txt`. With the venv active:
 
 ```bash
-# with the virtual environment activated:
+python -m pip install -r requirements.txt
+python public_verify.py --thread-url "https://www.perplexity.ai/search/65f1c6ad-8600-4393-aec2-0a4f7d8a1e8d" --native-export --output dom-export/native.md
+```
+
+The `--output` file contains Perplexity's native Markdown bytes. This can omit
+earlier turns from a long public share, even when its title looks correct. For
+structured REST counts without retaining a transcript, replace the second
+command with `python public_verify.py --thread-url "https://www.perplexity.ai/search/65f1c6ad-8600-4393-aec2-0a4f7d8a1e8d" --inspect`.
+Use a direct `perplexity.ai` UUID or decodable share URL, not a short redirect.
+Anonymous access can be blocked by the provider.
+
+## Step 2C: capture a shared thread in Chromium
+
+Use this path to compare rendered turns with a public share's visible UI. With
+the venv active, install Playwright and its Chromium build, then run the script:
+
+```bash
 python -m pip install -r requirements-dom.txt
 python -m playwright install chromium
-python3 dom_export.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" \
-  -o dom-export/share.md --report dom-export/share.json
+python dom_export.py --thread-url "https://www.perplexity.ai/search/65f1c6ad-8600-4393-aec2-0a4f7d8a1e8d" -o dom-export/share.md --report dom-export/share.json
 ```
 
-The browser collector is sequential and defaults to one action per second
-(`--pace-ms 1000`, allowed range 750–10000). This is a local conservative policy,
-not a Perplexity browser/API quota. Copy payloads stay in isolated page memory;
-the tool does not use your operating-system clipboard.
+`python -m playwright install chromium` downloaded about **658 MB** into
+`~/.cache/ms-playwright` on the verified October 5 Linux run; the size varies
+by version and OS and the cache is outside the repository. On Linux,
+`rm -rf ~/.cache/ms-playwright` removes that cache when you no longer need it,
+including browsers shared by other Playwright projects. Reinstall Chromium
+after upgrading the Playwright package, which pins its browser build.
 
-For a private thread, use a new dedicated profile and sign in yourself in the
-headed window. Never reuse your normal browser profile or send cookies to CI:
+Without `--profile-dir`, `dom_export.py` creates a fresh anonymous browser
+context. `--headed` only shows that window; it does not reuse your Chrome login.
+The current CLI also supports a **separate owner-authenticated mode** for a
+private thread: use a new dedicated profile and sign in manually in the headed
+window. Never point it at a personal browser profile or put authentication
+state in CI:
 
 ```bash
-python3 dom_export.py --thread-url "https://www.perplexity.ai/search/THREAD_UUID" \
-  --headed --profile-dir dom-export/profile --login-wait-seconds 300 \
-  -o dom-export/share.md --report dom-export/share.json
+python dom_export.py --thread-url "https://www.perplexity.ai/search/YOUR_THREAD_UUID" --headed --profile-dir dom-export/profile --login-wait-seconds 300 -o dom-export/share.md --report dom-export/share.json
 ```
 
-Exit 0 means only that the accessible UI reached a settled bottom from its first
-user turn with verified Copy payloads. The report still says
-`transcript_completeness: not_independently_verified` and
-`account_completeness: not_verified`. Any ambiguity, truncation, unfinished turn,
-Copy failure, access loss, rate limit, or safety cap exits 1 and writes
-`share.partial.md` / `share.partial.json` without replacing prior final files.
+The collector advances sequentially with a local default pace of one action
+per second (`--pace-ms 1000`, allowed range 750–10000). It keeps answer Copy
+payloads in isolated page memory, rather than your operating-system clipboard.
+It does not guarantee that Perplexity exposed every historical turn. Export
+each `continuation_urls` entry as a separate thread.
 
-## Where the files go
+Read the JSON report after every DOM run. `access` identifies public/private/
+denied/unknown access; `turns_seen` counts collected turns;
+`scroll_exhausted` says whether the collector settled at the UI bottom;
+`ui_truncation_banner` records a visible load failure; and
+`continuation_urls` lists linked threads. `title` is the page title, `engine`
+identifies `playwright-chromium`, and `thread_uuid`/`thread_url` identify the
+resolved thread. This version does **not** emit `source_url`: `thread_url` is
+the canonical URL, which can differ from a supplied slug. Also inspect
+`status`, `stop_reason`, and `start_verified`; a title or bottom position alone
+does not establish a complete transcript.
 
-The default output is **`pplx_export` beside the script**, on the machine running
-it. It is independent of your terminal's current directory. You can choose a
-different folder:
+In the current CLI, exit 0 requires a complete traversal of the accessible UI;
+denied access, zero or unfinished turns, a challenge, Copy failure, truncation,
+or a step limit exits 1. Partial data is written as `share.partial.md` and
+`share.partial.json` without replacing previous final files. The older October
+5 build could exit 0 for `access=denied`, `turns_seen=0`; always check the
+report even when exit status is 0. That Linux run loaded the page but received
+Cloudflare HTTP 403 on `/rest/thread/<uuid>`. See
+[issue #15](https://github.com/cgfixit/perplexity_export/issues/15). This
+provider limitation is documented, not solved; current runs can fail for
+other reasons too. Do not interpret native Markdown or a page title as proof of
+full UI capture.
+
+## Where the account files go
+
+For `pplx_export.py`, the default output is **`pplx_export` beside the script**,
+on the machine running it. It is independent of your terminal's current
+directory. You can choose a different folder:
 
 ```powershell
-py .\pplx_export.py -o "D:\Backups\Perplexity"
+python .\pplx_export.py -o "D:\Backups\Perplexity"
 ```
 
 ```bash
-python3 pplx_export.py -o ~/Documents/Perplexity
+python pplx_export.py -o ~/Documents/Perplexity
 ```
 
 Output files:
@@ -148,7 +201,7 @@ this script never mirrors remote deletion into your backup.
 To rebuild Markdown from saved JSON without cookies, `curl_cffi`, or network:
 
 ```powershell
-py .\pplx_export.py --from-raw .\pplx_export\raw -o .\rebuilt
+python .\pplx_export.py --from-raw .\pplx_export\raw -o .\rebuilt
 ```
 
 Older REST raw files and the previous exporter's `{"meta": ..., "turns": ...}`
@@ -161,7 +214,7 @@ established retrospectively.
 To check a known conversation by its UUID, independently of history discovery:
 
 ```powershell
-py .\pplx_export.py --thread-id YOUR_THREAD_UUID
+python .\pplx_export.py --thread-id YOUR_THREAD_UUID
 ```
 
 Use the thread's UUID, not its title or a whole URL. Repeat `--thread-id` for
@@ -169,10 +222,10 @@ several known conversations. A limited or targeted run is labeled as such in the
 report. Do not run two exports into the same folder concurrently. If the process
 was forcibly killed, verify it has stopped before removing the empty
 `.export.lock` directory from the output folder and rerunning. Prefer
-`py .\pplx_export.py -o <output> --force-unlock`, which removes only an empty
+`python .\pplx_export.py -o <output> --force-unlock`, which removes only an empty
 lock directory and refuses nonempty ones.
 
-## How to interpret completion
+## How to interpret account-export completion
 
 - Exit **0**: the requested scope finished without detected errors or rendering
   notes. This is **not proof of account-wide completeness**.
@@ -206,15 +259,10 @@ See [CI.md](CI.md) for the distinction between these checks and real account
 verification, including why a publicly shared link alone does not authenticate
 this exporter.
 
-Run the included standard-library tests (no test dependencies required):
-
-```powershell
-py -m unittest -v
-```
-
-The tests use simulated responses and temporary local files. They cover over
-100 discovered threads, over 100 turns, cursor handling, repeated pages, partial
-failures, cookie isolation, offline imports, stable names, and updated reruns.
+GitHub Actions runs standard-library tests with simulated responses and
+temporary files. They cover discovery, long transcripts, cursor handling,
+partial failures, cookie isolation, and offline imports. These checks do not
+establish that a particular live account or share is fully exportable.
 **No authenticated live account export was tested during preparation.**
 
 The implementation was independently written for this task using the supplied
@@ -266,15 +314,18 @@ On Mac/Linux, use `echo $?` immediately after the exporter.
 
 | Symptom | What to check or do |
 | --- | --- |
-| `py` is not recognized | Try `python --version`. Install Python 3.10+ if neither command works; reopen the terminal after installation. |
+| `py` is not recognized | On Windows, install a supported Python and reopen PowerShell; use its launcher to create `.venv`. After activation, run scripts with `python`. |
 | Script file cannot be opened | Open a terminal in the extracted repository folder, or provide the full path to `pplx_export.py`. |
-| Missing `curl_cffi` | Install requirements using the same interpreter you use to run the script: `py -m pip install -r requirements.txt`. |
-| Externally managed Python environment | Use the Mac/Linux virtual-environment commands above; do not force installation into the system environment. |
-| Cannot read cookie file | Confirm the name is exactly `pplx_cookies.txt`, not `pplx_cookies.txt.txt`, and that it is beside the script. Or provide `-c` with an explicit path. |
+| Missing `curl_cffi` | In the activated venv, run `python -m pip install -r requirements.txt` for `pplx_export.py` or `public_verify.py`. |
+| `externally-managed-environment` | You ran pip against system Python. Run Step 1, activate `.venv`, then use `python -m pip install -r requirements.txt` for REST or `python -m pip install -r requirements-dom.txt` for DOM. Do not force a system install. |
+| `No matching distribution found for requirements-*.txt` | You omitted `-r`. In the activated venv, use `python -m pip install -r requirements-dom.txt` for DOM or `python -m pip install -r requirements.txt` for REST; pip otherwise searches for a PyPI package with that filename. |
+| `Cannot read cookie file` | This applies to live `pplx_export.py` only. Confirm `pplx_cookies.txt` is beside the script, is readable, and has no extra `.txt` extension; or use `-c` with your private path. |
 | Invalid cookie header | Paste only the full request `Cookie` header value on one line. Do not paste an entire request, a shell command, or a `Set-Cookie` response header. |
-| HTTP 401/403 | Confirm you can view your history in the logged-in browser. Recopy the current cookies. If still blocked, stop and retry later; do not share the cookies for diagnosis. |
+| 401/403 `Login expired or request blocked` | For account export, confirm you can view your history in the signed-in browser and recopy your own one-line Cookie request-header value. A 403 can also mean a provider block; do not share cookies for diagnosis. Anonymous `public_verify.py` can also be denied, but has no cookie file to refresh. |
+| DOM `access=denied`, `turns_seen=0` | No transcript was captured. Check `status` and `stop_reason` in `share.partial.json`; a page loading is not evidence of access. An October 5 Linux run received Cloudflare 403 on `/rest/thread/<uuid>`. See [issue #15](https://github.com/cgfixit/perplexity_export/issues/15); this is documented, not fixed. |
+| Chromium for this Playwright version is not installed | In the activated venv, run `python -m playwright install chromium`; repeat after Playwright upgrades. |
 | HTTP 429 | Let the script honor the retry delay. If it ultimately stops, wait and retry later with `--delay 2` or a longer interval. |
-| Network request failed / timeout on a long thread | Detail pages for ~100+ turns can be slow. Retry with a higher `--timeout` (default 120; max 600), e.g. `py .\pplx_export.py --timeout 300 --thread-id YOUR_THREAD_UUID` or `python3 pplx_export.py --timeout 300 --thread-id YOUR_THREAD_UUID`. |
+| Network request failed / timeout on a long thread | Detail pages for ~100+ turns can be slow. For `pplx_export.py`, retry with `python pplx_export.py --timeout 300 --thread-id YOUR_THREAD_UUID` (default 120; max 600 seconds). |
 | Missing cursor / schema changed | The website protocol may have changed. Received JSON is retained under the failed run. Treat that transcript as incomplete; do not change the script to ignore the error. |
 | Unknown blocks / review notes | Open the affected Markdown; new block data is included as JSON. Check the raw file before deciding whether the readable export is sufficient. |
 | Old imports return exit 1 | Read the notes: a legacy format cannot establish its historical pagination completeness. The imported Markdown may still be usable. |
@@ -288,11 +339,11 @@ Use an output directory outside the repository for regular exports. This reduces
 the chance of accidentally staging transcripts with source-code changes.
 
 ```powershell
-py .\pplx_export.py -o "$env:USERPROFILE\Documents\PerplexityHistory"
+python .\pplx_export.py -o "$env:USERPROFILE\Documents\PerplexityHistory"
 ```
 
 ```bash
-python3 pplx_export.py -o ~/Documents/PerplexityHistory
+python pplx_export.py -o ~/Documents/PerplexityHistory
 ```
 
 Copy the entire export folder to your usual trusted backup location. If it is
@@ -302,71 +353,12 @@ not upload transcripts or call a third-party processing service.
 
 Before updating a Git checkout, review local changes with `git status`. If it
 is clean and the remote exists, `git pull --ff-only` updates the program without
-rewriting your local work. Run `py -m unittest -v` after updates. The code can
-change independently of the saved raw conversations.
+rewriting your local work. Activate the venv again and reinstall only the
+requirements files for your chosen path after updates. The code can change
+independently of saved raw conversations.
 
 If a cookie was accidentally shared, use Perplexity's available account/session
 controls to revoke the exposed session, then obtain fresh credentials. Removing
 the text from a message or Git commit alone does not revoke a session. Never
 attach a cookie file when reporting a bug. Exported raw JSON may also contain
 personal text, attachment URLs, and account metadata: redact it before sharing.
-
-## Publishing this source package to a private GitHub repository
-
-These commands are for publishing the program and documentation, not your
-conversation exports. They require Git and GitHub CLI installed locally, and a
-GitHub account allowed to create `cgfixit/perplexity_export`.
-
-From the source folder, verify GitHub CLI authentication:
-
-```powershell
-gh auth status
-```
-
-If you are not signed in, use `gh auth login` on your own machine and complete
-its normal sign-in process. Confirm the selected account is `cgfixit` before
-creating the repository.
-
-If you downloaded the source ZIP and it has no Git history, initialize it and
-commit only the named source/documentation files:
-
-```powershell
-git init -b main
-git add pplx_export.py requirements.txt test_export.py README.md USER_GUIDE.md .gitignore
-git diff --cached --stat
-git status --short
-git commit -m "Add local Markdown exporter, regression tests, and user guide"
-```
-
-If Git asks for author information, configure your own preferred Git author
-name and email. A GitHub-provided no-reply email can keep your personal email
-out of commit metadata. Do not replace an existing Git identity blindly.
-
-Create the repository explicitly as private and push the local commit:
-
-```powershell
-gh repo create cgfixit/perplexity_export --private --source . --remote origin --push
-```
-
-If the repository already exists, inspect its visibility and contents first.
-Do not force-push over existing work. For a confirmed empty private repository,
-add its remote if necessary and push normally:
-
-```powershell
-git remote add origin https://github.com/cgfixit/perplexity_export.git
-git push -u origin main
-```
-
-Skip `git remote add` if `origin` already points to the intended repository.
-Verify the result:
-
-```powershell
-gh repo view cgfixit/perplexity_export --json nameWithOwner,isPrivate,url
-git status --short
-git rev-parse HEAD
-git ls-remote origin refs/heads/main
-```
-
-`isPrivate` must be `true`. The local commit SHA should match the remote `main`
-SHA. The tracked files should contain only source code, tests, requirements,
-documentation, and `.gitignore`; cookies and exported chats do not belong there.
