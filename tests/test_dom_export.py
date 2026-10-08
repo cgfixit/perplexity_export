@@ -462,6 +462,39 @@ class DomCollectorTests(unittest.TestCase):
         self.assertEqual(capped["status"], "partial")
         self.assertEqual(capped["stop_reason"], "step_limit")
 
+    def test_start_recovery_is_bounded_and_preserves_warning_metadata(self):
+        snapshot = dom_snapshot([
+            dom_turn("tail", "assistant", "last answer", 700, copy_ready=True),
+        ], top=700, bottom=True, truncation="history unavailable",
+            continuations=["https://cgfixit.com/trade2.html"])
+        for max_steps, reason in ((100, "start_not_reached"), (3, "step_limit")):
+            with self.subTest(max_steps=max_steps):
+                page = FakeDomPage([snapshot])
+                checkpoints = []
+                records, report = dom_export._collect(
+                    page, self.base_report(), pace_ms=10, settle_timeout_ms=50,
+                    max_steps=max_steps,
+                    checkpoint=lambda markdown, data: checkpoints.append(data),
+                )
+                self.assertEqual(records, [])
+                self.assertEqual(page.copy_calls, [])
+                self.assertEqual(report["stop_reason"], reason)
+                self.assertEqual(report["status"], "partial")
+                self.assertFalse(report["start_verified"])
+                self.assertLessEqual(page.clock, 0.06)
+                self.assertEqual(report["ui_truncation_banner"], "history unavailable")
+                self.assertEqual(report["continuation_urls"], ["https://cgfixit.com/trade2.html"])
+                self.assertEqual(checkpoints[-1]["stop_reason"], reason)
+
+    def test_empty_page_does_not_verify_the_start(self):
+        page = FakeDomPage([dom_snapshot([], bottom=True)])
+        records, report = dom_export._collect(
+            page, self.base_report(), pace_ms=10, settle_timeout_ms=50, max_steps=20,
+        )
+        self.assertEqual(records, [])
+        self.assertEqual(report["stop_reason"], "empty")
+        self.assertFalse(report["start_verified"])
+
     def test_delayed_content_settles_before_copy_and_keeps_attachment(self):
         snapshots = [
             {**dom_snapshot([
@@ -1303,6 +1336,63 @@ DELAYED_TAIL_FIXTURE = r"""
 
 class DomBrowserFixtureTests(unittest.TestCase):
     """Optional real-browser test against an offline virtualized page."""
+
+    def test_hydration_scroll_jump_does_not_skip_the_start(self):
+        if os.environ.get("DOM_EXPORT_BROWSER_FIXTURE") != "1":
+            self.skipTest("Set DOM_EXPORT_BROWSER_FIXTURE=1 to run the Playwright fixture")
+        from playwright.sync_api import sync_playwright
+
+        fixture = """
+            <style>
+              .scrollable-container { height: 240px; overflow-y: auto; }
+              .question { height: 50px; }
+              .answer-body { height: 400px; }
+            </style>
+            <div class="scrollable-container"></div>
+            <script>
+              setTimeout(() => {
+                const root = document.querySelector('.scrollable-container');
+                for (let i = 0; i < 12; i++) {
+                  const user = document.createElement('div');
+                  user.className = 'question group/user-bubble';
+                  user.textContent = `question ${i}`;
+                  if (i === 0) {
+                    const image = document.createElement('img');
+                    image.alt = 'fixture.png';
+                    user.append(image);
+                  }
+                  const answer = document.createElement('div');
+                  answer.className = 'group/final-text';
+                  answer.innerHTML = `<div class="answer-body">answer ${i}</div><div><button aria-label="Copy">Copy</button></div>`;
+                  answer.querySelector('button').onclick = () => navigator.clipboard.writeText(`answer ${i}`);
+                  root.append(user, answer);
+                }
+                root.scrollTop = root.scrollHeight;
+                window.hydrationJump = root.scrollTop;
+              }, 300);
+            </script>
+        """
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                context = browser.new_context(viewport={"width": 900, "height": 600})
+                context.add_init_script(script=dom_export.ISOLATED_CLIPBOARD_SCRIPT)
+                page = context.new_page()
+                page.set_content(fixture)
+                records, report = dom_export._collect(
+                    dom_export._LivePage(page), self.base_report(), pace_ms=50,
+                    settle_timeout_ms=1000, max_steps=200,
+                )
+                self.assertGreater(page.evaluate("() => window.hydrationJump"), 4000)
+                self.assertEqual(report["status"], "complete", report)
+                self.assertTrue(report["start_verified"])
+                self.assertEqual(
+                    [turn["text"] for turn in dom_export._public_turns(records)],
+                    [text for i in range(12) for text in (f"question {i}", f"answer {i}")],
+                )
+                self.assertEqual(records[0]["attachments"], ["fixture.png"])
+            finally:
+                browser.close()
 
     def test_delayed_tail_is_collected_after_initial_bottom(self):
         if os.environ.get("DOM_EXPORT_BROWSER_FIXTURE") != "1":

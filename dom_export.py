@@ -1146,11 +1146,11 @@ def _collect(adapter, report: dict, *, pace_ms: int = 1000,
         "account_completeness": "not_verified",
         "transcript_completeness": "not_independently_verified",
         "ui_capture": "partial",
-        "start_verified": bool(adapter.reset_top()),
+        "start_verified": False,
         "steps": 0,
         "copy_failures": [],
     })
-    if not report["start_verified"]:
+    if not adapter.reset_top():
         report["stop_reason"] = "start_not_reached"
         _checkpoint(checkpoint, records, report)
         return records, report
@@ -1159,6 +1159,7 @@ def _collect(adapter, report: dict, *, pace_ms: int = 1000,
     quiet_dwell = settle_timeout_ms / 1000
     staged = {}
     settle_deadline = now() + settle_timeout_ms / 1000
+    start_deadline = settle_deadline
     # Process an immediate observation before the first paced wait/click so
     # transient turns, banners, and access failures cannot disappear unseen.
     pending_snapshot = adapter.snapshot() or {}
@@ -1203,6 +1204,20 @@ def _collect(adapter, report: dict, *, pace_ms: int = 1000,
                 report["continuation_urls"].append(url)
                 changed = True
 
+        # The app can scroll to its last answer while hydrating an initially
+        # empty page. A successful scrollTop=0 before hydration is not proof
+        # that collection starts there. Reacquire the top before accepting any
+        # turns, bounded by the original startup deadline and step budget.
+        if not records and float((snapshot.get("metrics") or {}).get("top") or 0) > 4:
+            if now() >= start_deadline or not adapter.reset_top():
+                stop_reason = "start_not_reached"
+                break
+            staged = {}
+            last_fingerprint = None
+            bottom_quiet_started = None
+            adapter.throttle(pace_ms)
+            continue
+
         _stage_snapshot(staged, snapshot.get("turns") or [])
 
         fingerprint = _snapshot_fingerprint(snapshot)
@@ -1236,6 +1251,8 @@ def _collect(adapter, report: dict, *, pace_ms: int = 1000,
                 start_issue = "start_not_reached"
             elif batch[0].get("role") != "user":
                 start_issue = "start_turn_missing"
+            else:
+                report["start_verified"] = True
         pairs, merge_error = _merge_batch(records, batch)
         if merge_error:
             stop_reason = merge_error

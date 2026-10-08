@@ -247,7 +247,12 @@ Use forward slashes in bash/zsh: a backslash path such as `.\dom-export\share.md
 creates one oddly named file in the current directory on macOS/Linux.
 
 The collector starts at a verified top, advances one overlapping viewport at a
-time, and runs one browser action at a time. `--pace-ms` defaults to 1000 and is
+time, and runs one browser action at a time. If the page jumps to its last answer
+while initially loading, the collector returns to the top before accepting turns.
+This startup recovery is bounded by `--settle-timeout-ms` and `--max-steps`;
+`start_verified` stays false until an initial settled user turn is accepted at
+the top. An empty page at scroll position zero does not establish the start.
+`--pace-ms` defaults to 1000 and is
 bounded to 750–10000 milliseconds. That is a conservative local throttle, not an
 official UI limit; published Perplexity API quotas do not govern browser pages or
 undocumented website endpoints. A page-observed HTTP 429 stops the run rather
@@ -296,6 +301,7 @@ report before trying again:
 | --- | --- |
 | `challenge` | Open a headed run with a dedicated profile and complete the browser verification manually. A working regular Chrome tab does not share its login with the exporter. |
 | `needs_auth` | Use the dedicated-profile command above and sign in as the thread owner. |
+| `start_not_reached` | The page could not remain at the top during startup. Inspect the headed browser; no complete export was produced. |
 | `settle_timeout` or `step_limit` | Check whether the browser is still loading. Increase the corresponding settling or step limit only if the page can load more content. |
 | `ui_truncated` | Perplexity reports that it cannot load the rest. Keep the partial files; retrying the native Markdown API does not prove that missing turns were recovered. |
 | `lost_overlap`, `ambiguous_overlap`, or `copy_failed` | Keep the partial report for diagnosis. The collector could not verify turn order or answer Copy fidelity. |
